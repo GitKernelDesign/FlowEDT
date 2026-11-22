@@ -11,58 +11,6 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
     // montrer tous les cours présents, même quand un filtre en masque une partie.
     const fullSchedule = sourceSchedule || scheduleData;
 
-    // ---------- Un cours de deux heures = une seule cellule ----------
-    // Tant qu'une heure contient un seul cours affiché, les créneaux qu'il
-    // occupe sont fusionnés (`rowspan`) : la carte prend la hauteur réelle du
-    // cours, son intitulé n'est plus répété cellule après cellule et la durée
-    // se lit d'un coup d'œil. Dès qu'un créneau affiche plusieurs cours en
-    // parallèle (vue « toutes les classes »), la fusion est impossible : on
-    // revient aux cartes empilées reliées par leur bande de continuité.
-    const spanAt = {};
-    const spanSkip = {};
-    DAYS.forEach((day) => {
-        spanAt[day] = {};
-        spanSkip[day] = {};
-        const itemsAt = (slot) => {
-            const value = scheduleData[day] && scheduleData[day][slot];
-            if (!value) return [];
-            return (Array.isArray(value) ? value : [value]).filter(
-                (placement) => placement && placement.courseId,
-            );
-        };
-        TIME_SLOTS.forEach((slot, index) => {
-            if (spanSkip[day][slot]) return;
-            const items = itemsAt(slot);
-            if (items.length !== 1) return;
-            const item = items[0];
-            // Seul le premier créneau du cours ouvre le bloc : une partie
-            // suivante ne fusionne pas, elle est déjà couverte.
-            if (item.slotIndex) return;
-            let length = 1;
-            while (index + length < TIME_SLOTS.length) {
-                const nextItems = itemsAt(TIME_SLOTS[index + length]);
-                if (nextItems.length !== 1) break;
-                const next = nextItems[0];
-                if (next.courseId !== item.courseId) break;
-                if ((next.slotIndex || 0) !== length) break;
-                length += 1;
-            }
-            if (length < 2) return;
-            spanAt[day][slot] = length;
-            for (let offset = 1; offset < length; offset += 1) {
-                spanSkip[day][TIME_SLOTS[index + offset]] = true;
-            }
-        });
-    });
-
-    // Fin d'un bloc fusionné, exprimée comme une heure de cours.
-    const spanEndLabel = (slot, length) => {
-        const index = TIME_SLOTS.indexOf(slot);
-        const last = index + length - 1;
-        if (last < 0 || last >= TIME_SLOTS.length) return "";
-        return TIME_SLOTS[last].split("-")[1];
-    };
-
     TIME_SLOTS.forEach((slot) => {
         const row = document.createElement("tr");
 
@@ -73,9 +21,6 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
         row.appendChild(timeCell);
 
         DAYS.forEach((day) => {
-            // Créneau déjà couvert par la cellule fusionnée du dessus.
-            if (spanSkip[day] && spanSkip[day][slot]) return;
-
             const cell = document.createElement("td");
             const slotData = scheduleData[day] && scheduleData[day][slot];
             const sourceSlotData =
@@ -107,32 +52,15 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
             cell.setAttribute("role", "button");
             cell.className = "slot";
 
-            // Hauteur réelle du cours quand il occupe plusieurs créneaux et
-            // qu'aucun autre cours ne partage l'heure.
-            const spanLength = (spanAt[day] && spanAt[day][slot]) || 1;
-            const spanEnd = spanLength > 1 ? spanEndLabel(slot, spanLength) : "";
-            if (spanLength > 1) {
-                cell.rowSpan = spanLength;
-                cell.classList.add("slot--span");
-            }
-
             let ariaLabel = `${day}, ${slot.replace("-", " – ")}`;
-            if (spanLength > 1) {
-                ariaLabel = `${day}, ${slotStart(slot)} – ${spanEnd || slotStart(slot)}`;
-            }
 
             if (slotData) {
                 const list = Array.isArray(slotData) ? slotData : [slotData];
                 const wrapper = document.createElement("div");
                 wrapper.className = "slot__list";
                 const names = [];
-                const contNames = [];
                 const firstSlots = [];
                 const continuations = [];
-                // La seconde ligne d'un cours s'adapte au filtre actif :
-                // répéter la salle en vue « par salle » n'apporte rien.
-                const viewType =
-                    (currentSelectedItem && currentSelectedItem.type) || "all";
 
                 list.forEach((item) => {
                     if (!item || !item.courseId) return;
@@ -159,217 +87,65 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                     const halfGroup = appData.halfGroups.find(
                         (hg) => hg.id === course.classId,
                     );
-                    const classLabel = halfGroup
-                        ? halfGroup.groupName || classInfo
-                        : classInfo;
-                    // Étiquette courte : « Groupe 1 » en toutes lettres prenait
-                    // la moitié de la largeur utile d'un créneau.
-                    const tagLabel =
-                        halfGroup && halfGroup.groupNumber
-                            ? `Gr. ${halfGroup.groupNumber}`
-                            : classLabel;
-                    const detail = [course.name, classInfo, teacherNames]
-                        .concat(room ? [room.name] : [])
-                        .filter(Boolean)
-                        .join(" · ");
-                    // Filtré sur cette classe précise : répéter son nom dans
-                    // chaque case n'apporte rien et mange la largeur du cours.
-                    const sameClassView =
-                        viewType === "class" &&
-                        currentSelectedItem &&
-                        currentSelectedItem.id === course.classId;
-                    const showTag = !sameClassView;
-                    const metaParts = [];
-                    if (teacherNames && viewType !== "teacher") {
-                        metaParts.push(teacherNames);
-                    }
-                    if (room && viewType !== "room") metaParts.push(room.name);
-                    const meta = metaParts.join(" · ");
 
-                    // Le créneau suivant contient-il la suite de ce cours ?
-                    // On interroge le planning affiché : inutile de relier une
-                    // cellule qui n'affiche pas la suite.
-                    const slotIndex = TIME_SLOTS.indexOf(slot);
-                    const nextSlot =
-                        slotIndex >= 0 && slotIndex < TIME_SLOTS.length - 1
-                            ? TIME_SLOTS[slotIndex + 1]
-                            : null;
-                    const nextCell = nextSlot
-                        ? scheduleData[day] && scheduleData[day][nextSlot]
-                        : null;
-                    const nextItems = Array.isArray(nextCell)
-                        ? nextCell
-                        : nextCell
-                          ? [nextCell]
-                          : [];
-                    const continuesBelow = Boolean(
-                        nextSlot &&
-                            // créneau avalé par la cellule fusionnée : la suite
-                            // est déjà dans cette carte
-                            !(spanSkip[day] && spanSkip[day][nextSlot]) &&
-                            nextItems.some(
-                                (next) =>
-                                    next &&
-                                    next.courseId === item.courseId &&
-                                    (next.slotIndex || 0) ===
-                                        (item.slotIndex || 0) + 1,
-                            ),
-                    );
                     if (isFirstSlot) {
                         names.push(course.name);
+                        const classLabel = halfGroup
+                            ? halfGroup.groupName || classInfo
+                            : classInfo;
+                        const detail = [course.name, classLabel, teacherNames]
+                            .concat(room ? [room.name] : [])
+                            .filter(Boolean)
+                            .join(" · ");
+                        // Une seule ligne par cours : la grille garde des lignes
+                        // de hauteur fixe, donc un créneau chargé ne déforme plus
+                        // l'axe des heures. Le détail complet reste au survol.
                         const element = document.createElement("div");
-                        element.className =
-                            "slot-course" +
-                            (continuesBelow ? " slot-course--next" : "");
-                        if (spanLength > 1) {
-                            element.classList.add("slot-course--span");
-                        }
+                        element.className = "slot-course";
                         element.style.setProperty("--course-color", color);
                         element.title = detail;
                         element.innerHTML = `
-                            <span class="slot-course__head">
-                                <span class="slot-course__name">${escapeHtml(course.name)}</span>
-                                ${showTag && tagLabel ? `<span class="slot-course__tag">${escapeHtml(tagLabel)}</span>` : ""}
-                            </span>
-                            ${meta ? `<span class="slot-course__meta">${escapeHtml(meta)}</span>` : ""}
-                            ${
-                                spanLength > 1
-                                    ? `<span class="slot-course__time">${escapeHtml(slotStart(slot))} – ${escapeHtml(spanEnd || slotStart(slot))}</span>`
-                                    : ""
-                            }`;
+                            <span class="slot-course__name">${escapeHtml(course.name)}</span>
+                            ${classLabel ? `<span class="slot-course__tag">${escapeHtml(classLabel)}</span>` : ""}`;
                         firstSlots.push(element);
                     } else {
-                        const chip = document.createElement("div");
-                        chip.className =
-                            "slot-cont slot-cont--cont" +
-                            (continuesBelow ? " slot-cont--next" : "");
+                        const chip = document.createElement("span");
+                        chip.className = "slot-cont";
                         chip.style.setProperty("--course-color", color);
-                        chip.title = `${course.name} (suite)${detail ? ` · ${detail}` : ""}`;
-                        chip.innerHTML = `
-                            <span class="slot-cont__head">
-                                <span class="slot-cont__name">${escapeHtml(course.name)}</span>
-                                ${showTag && tagLabel ? `<span class="slot-cont__tag">${escapeHtml(tagLabel)}</span>` : ""}
-                            </span>
-                            ${meta ? `<span class="slot-cont__meta">${escapeHtml(meta)}</span>` : ""}`;
+                        chip.title = `${course.name} (suite)`;
+                        chip.innerHTML = `<span class="slot-cont__dot" aria-hidden="true"></span><span class="slot-cont__name">${escapeHtml(course.name)}</span>`;
                         continuations.push(chip);
-                        contNames.push(course.name);
                     }
                 });
 
-                // Un cours seul occupe un bloc de deux lignes (intitulé, puis
-                // professeur et salle) : c'est le cas courant des vues par
-                // classe, professeur ou salle. Dès qu'un créneau contient
-                // plusieurs cours, on revient à des puces d'une ligne — deux au
-                // plus — et le reste est annoncé par un badge.
-                const single =
-                    firstSlots.length === 1 && continuations.length === 0;
-                if (single) {
-                    firstSlots[0].classList.add("slot-course--rich");
-                }
-                // Une bande de continuité prend la place d'une puce : sans
-                // cela, un créneau chargé dépassait la hauteur de la rangée et
-                // décalait l'axe des heures.
-                const MAX_CHIPS = continuations.length ? 1 : 2;
-                const shown = single
-                    ? 1
-                    : Math.min(firstSlots.length, MAX_CHIPS);
-                const hiddenCount = firstSlots.length - shown;
-
-                // Chaque rangée de la cellule est une ligne de texte unique :
-                // intitulé, seconde puce, bande de continuité. Le compteur des
-                // cours masqués s'accroche à la dernière rangée affichée : le
-                // créneau ne dépasse ainsi jamais deux lignes, même quand trois
-                // cours tombent à la même heure.
-                const addRow = (nodes) => {
-                    const row = document.createElement("div");
-                    row.className = "slot-row";
-                    nodes.forEach((node) => row.appendChild(node));
-                    wrapper.appendChild(row);
-                    return row;
-                };
-
-                // Deux cours : ils peuvent se placer côte à côte quand la
-                // colonne est assez large (vue jour). Le compteur éventuel
-                // devient alors une pastille au bout de la rangée.
-                const paired = !continuations.length && shown === 2;
-                if (paired) {
-                    wrapper.classList.add("slot__list--pair");
-                }
-
-                // Une seule ligne par cours : les puces ne partagent jamais une
-                // rangée, sinon les intitulés finissaient en « Es… ».
+                // Deux cours tiennent dans une ligne ; au-delà on en montre un
+                // et on annonce le reste, pour ne jamais rogner le tableau.
+                const MAX_VISIBLE = 2;
+                const shown =
+                    firstSlots.length > MAX_VISIBLE ? 1 : firstSlots.length;
                 firstSlots.slice(0, shown).forEach((element) => {
-                    const row = addRow([element]);
-                    if (element.classList.contains("slot-course--next")) {
-                        // le raccord est dessiné par la rangée, qui n'écrête
-                        // pas ses débordements comme la carte
-                        row.classList.add("slot-row--next");
-                        row.style.setProperty(
-                            "--course-color",
-                            element.style.getPropertyValue("--course-color"),
-                        );
-                    }
+                    wrapper.appendChild(element);
                 });
+                if (firstSlots.length > MAX_VISIBLE) {
+                    const more = document.createElement("span");
+                    more.className = "slot-more";
+                    more.textContent = `+${firstSlots.length - shown} autres`;
+                    wrapper.appendChild(more);
+                }
                 if (continuations.length) {
                     const stack = document.createElement("div");
                     stack.className = "slot-cont-list";
                     stack.appendChild(continuations[0]);
-                    const band = continuations[0];
-                    const bandColor = band.style.getPropertyValue("--course-color");
-                    if (bandColor) {
-                        stack.style.setProperty("--course-color", bandColor);
-                    }
-                    if (band.classList.contains("slot-cont--cont")) {
-                        stack.classList.add("slot-cont-list--cont");
-                    }
-                    if (band.classList.contains("slot-cont--next")) {
-                        stack.classList.add("slot-cont-list--next");
+                    if (continuations.length > 1) {
+                        const rest = document.createElement("span");
+                        rest.className = "slot-cont__count";
+                        rest.textContent = `+${continuations.length - 1}`;
+                        stack.appendChild(rest);
                     }
                     wrapper.appendChild(stack);
                 }
-                // Un seul compteur par créneau, accroché à la dernière rangée
-                // affichée : il totalise les cours de l'heure et les suites
-                // masqués, au lieu d'un « +1 » de chaque côté.
-                const hiddenNames = names
-                    .slice(shown)
-                    .concat(contNames.slice(1));
-                const hiddenTotal = hiddenCount + continuations.length - (continuations.length ? 1 : 0);
-                if (hiddenTotal > 0) {
-                    const counter = document.createElement("span");
-                    counter.className = continuations.length
-                        ? "slot-cont__count"
-                        : "slot-more";
-                    counter.textContent = `+${hiddenTotal}`;
-                    counter.title = hiddenNames.join(" · ");
-                    counter.setAttribute(
-                        "aria-label",
-                        `${hiddenTotal} autre${hiddenTotal > 1 ? "s" : ""} cours : ${hiddenNames.join(", ")}`,
-                    );
-                    // Le compteur reste dans la dernière rangée : en colonne
-                    // il ferme la ligne du bas, côte à côte il se place au bout
-                    // de la seconde carte. Ainsi la cellule garde deux lignes
-                    // quelle que soit la largeur.
-                    if (continuations.length) {
-                        // Dans la bande, le compteur rejoint la ligne du
-                        // haut : empilé sous l'intitulé il ajoutait une
-                        // troisième ligne et faisait grandir la rangée.
-                        const bandHead = continuations[0].querySelector(
-                            ".slot-cont__head",
-                        );
-                        (bandHead || continuations[0]).appendChild(counter);
-                    } else {
-                        wrapper.lastElementChild.appendChild(counter);
-                    }
-                }
 
                 cell.classList.add("slot--course");
-                if (continuations.length) {
-                    cell.classList.add("slot--continues");
-                    if (!firstSlots.length) {
-                        cell.classList.add("slot--only-cont");
-                    }
-                }
-
                 cell.appendChild(wrapper);
                 ariaLabel += names.length
                     ? `, ${names.join(", ")}`

@@ -30,8 +30,6 @@ Générateur d'emplois du temps pour établissement scolaire, en **un seul fichi
 
 **Emploi du temps** — grille 6 jours × créneaux, semaines A et B, vues globale, par professeur, par classe ou par salle. Détection des conflits en temps réel : un professeur, une classe ou une salle ne peuvent jamais être occupés deux fois au même créneau.
 
-**Lisibilité des cours** — quand l'heure ne contient qu'un cours (vues par classe, professeur ou salle), ses créneaux sont fusionnés en **une seule carte à la hauteur réelle du cours** : `Physique-Chimie · 8:00 – 10:00` se lit d'un bloc, sans intitulé répété. Les autres cas gardent des cartes empilées : un cours seul s'affiche sur deux lignes (intitulé, puis professeur et salle), sa suite se poursuit en bande de couleur pleine hauteur — même teinte, même rail à gauche — pour que le bloc se suive d'une cellule à l'autre. Un créneau chargé montre deux cours au plus et un compteur « +N » (détail au survol et dans la fiche du créneau). En vue jour, deux cours simultanés se placent côte à côte. Les intitulés ne sont jamais rognés verticalement.
-
 **Confort de lecture** — mode compact des tableaux (mémorisé), bascule clair/sombre, export PDF et CSV, impression.
 
 **Mobile** — menu burger, barre de navigation inférieure, feuilles modales, tableaux compacts ; toutes les fonctions restent accessibles en 390 px.
