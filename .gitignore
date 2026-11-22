@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Captures, PDF et rapports produits par la QA (.audit/shot.py)
+.audit/before/
+.audit/empty/
+.audit/final/
+.audit/filters/
+.audit/fresh/
+.audit/menu/
+.audit/palette/
+.audit/studio/
+.audit/*.png
+.audit/*.pdf
+
+# Divers
+.DS_Store
+*.log
