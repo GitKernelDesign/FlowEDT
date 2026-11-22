@@ -59,8 +59,13 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                 const wrapper = document.createElement("div");
                 wrapper.className = "slot__list";
                 const names = [];
+                const contNames = [];
                 const firstSlots = [];
                 const continuations = [];
+                // La seconde ligne d'un cours s'adapte au filtre actif :
+                // répéter la salle en vue « par salle » n'apporte rien.
+                const viewType =
+                    (currentSelectedItem && currentSelectedItem.type) || "all";
 
                 list.forEach((item) => {
                     if (!item || !item.courseId) return;
@@ -87,65 +92,134 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                     const halfGroup = appData.halfGroups.find(
                         (hg) => hg.id === course.classId,
                     );
+                    const classLabel = halfGroup
+                        ? halfGroup.groupName || classInfo
+                        : classInfo;
+                    // Étiquette courte : « Groupe 1 » en toutes lettres prenait
+                    // la moitié de la largeur utile d'un créneau.
+                    const tagLabel =
+                        halfGroup && halfGroup.groupNumber
+                            ? `Gr. ${halfGroup.groupNumber}`
+                            : classLabel;
+                    const detail = [course.name, classInfo, teacherNames]
+                        .concat(room ? [room.name] : [])
+                        .filter(Boolean)
+                        .join(" · ");
+                    // Filtré sur cette classe précise : répéter son nom dans
+                    // chaque case n'apporte rien et mange la largeur du cours.
+                    const sameClassView =
+                        viewType === "class" &&
+                        currentSelectedItem &&
+                        currentSelectedItem.id === course.classId;
+                    const showTag = !sameClassView;
+                    const metaParts = [];
+                    if (teacherNames && viewType !== "teacher") {
+                        metaParts.push(teacherNames);
+                    }
+                    if (room && viewType !== "room") metaParts.push(room.name);
+                    const meta = metaParts.join(" · ");
 
                     if (isFirstSlot) {
                         names.push(course.name);
-                        const classLabel = halfGroup
-                            ? halfGroup.groupName || classInfo
-                            : classInfo;
-                        const detail = [course.name, classLabel, teacherNames]
-                            .concat(room ? [room.name] : [])
-                            .filter(Boolean)
-                            .join(" · ");
-                        // Une seule ligne par cours : la grille garde des lignes
-                        // de hauteur fixe, donc un créneau chargé ne déforme plus
-                        // l'axe des heures. Le détail complet reste au survol.
                         const element = document.createElement("div");
                         element.className = "slot-course";
                         element.style.setProperty("--course-color", color);
                         element.title = detail;
                         element.innerHTML = `
-                            <span class="slot-course__name">${escapeHtml(course.name)}</span>
-                            ${classLabel ? `<span class="slot-course__tag">${escapeHtml(classLabel)}</span>` : ""}`;
+                            <span class="slot-course__head">
+                                <span class="slot-course__name">${escapeHtml(course.name)}</span>
+                                ${showTag && tagLabel ? `<span class="slot-course__tag">${escapeHtml(tagLabel)}</span>` : ""}
+                            </span>
+                            ${meta ? `<span class="slot-course__meta">${escapeHtml(meta)}</span>` : ""}`;
                         firstSlots.push(element);
                     } else {
-                        const chip = document.createElement("span");
+                        const chip = document.createElement("div");
                         chip.className = "slot-cont";
                         chip.style.setProperty("--course-color", color);
-                        chip.title = `${course.name} (suite)`;
-                        chip.innerHTML = `<span class="slot-cont__dot" aria-hidden="true"></span><span class="slot-cont__name">${escapeHtml(course.name)}</span>`;
+                        chip.title = `${course.name} (suite)${detail ? ` · ${detail}` : ""}`;
+                        chip.innerHTML = `
+                            <span class="slot-cont__name">${escapeHtml(course.name)}</span>
+                            ${showTag && tagLabel ? `<span class="slot-cont__tag">${escapeHtml(tagLabel)}</span>` : ""}`;
                         continuations.push(chip);
+                        contNames.push(course.name);
                     }
                 });
 
-                // Deux cours tiennent dans une ligne ; au-delà on en montre un
-                // et on annonce le reste, pour ne jamais rogner le tableau.
-                const MAX_VISIBLE = 2;
-                const shown =
-                    firstSlots.length > MAX_VISIBLE ? 1 : firstSlots.length;
-                firstSlots.slice(0, shown).forEach((element) => {
-                    wrapper.appendChild(element);
-                });
-                if (firstSlots.length > MAX_VISIBLE) {
-                    const more = document.createElement("span");
-                    more.className = "slot-more";
-                    more.textContent = `+${firstSlots.length - shown} autres`;
-                    wrapper.appendChild(more);
+                // Un cours seul occupe un bloc de deux lignes (intitulé, puis
+                // professeur et salle) : c'est le cas courant des vues par
+                // classe, professeur ou salle. Dès qu'un créneau contient
+                // plusieurs cours, on revient à des puces d'une ligne — deux au
+                // plus — et le reste est annoncé par un badge.
+                const single =
+                    firstSlots.length === 1 && continuations.length === 0;
+                if (single) {
+                    firstSlots[0].classList.add("slot-course--rich");
                 }
+                // Une bande de continuité prend la place d'une puce : sans
+                // cela, un créneau chargé dépassait la hauteur de la rangée et
+                // décalait l'axe des heures.
+                const MAX_CHIPS = continuations.length ? 1 : 2;
+                const shown = single
+                    ? 1
+                    : Math.min(firstSlots.length, MAX_CHIPS);
+                const hiddenCount = firstSlots.length - shown;
+
+                // Chaque rangée de la cellule est une ligne de texte unique :
+                // intitulé, seconde puce, bande de continuité. Le compteur des
+                // cours masqués s'accroche à la dernière rangée affichée : le
+                // créneau ne dépasse ainsi jamais deux lignes, même quand trois
+                // cours tombent à la même heure.
+                const addRow = (nodes) => {
+                    const row = document.createElement("div");
+                    row.className = "slot-row";
+                    nodes.forEach((node) => row.appendChild(node));
+                    wrapper.appendChild(row);
+                    return row;
+                };
+
+                // Une seule ligne par cours : les puces ne partagent jamais une
+                // rangée, sinon les intitulés finissaient en « Es… ».
+                firstSlots.slice(0, shown).forEach((element) => {
+                    addRow([element]);
+                });
                 if (continuations.length) {
                     const stack = document.createElement("div");
                     stack.className = "slot-cont-list";
                     stack.appendChild(continuations[0]);
-                    if (continuations.length > 1) {
-                        const rest = document.createElement("span");
-                        rest.className = "slot-cont__count";
-                        rest.textContent = `+${continuations.length - 1}`;
-                        stack.appendChild(rest);
-                    }
                     wrapper.appendChild(stack);
+                }
+                // Un seul compteur par créneau, accroché à la dernière rangée
+                // affichée : il totalise les cours de l'heure et les suites
+                // masqués, au lieu d'un « +1 » de chaque côté.
+                const hiddenNames = names
+                    .slice(shown)
+                    .concat(contNames.slice(1));
+                const hiddenTotal = hiddenCount + continuations.length - (continuations.length ? 1 : 0);
+                if (hiddenTotal > 0) {
+                    const counter = document.createElement("span");
+                    counter.className = continuations.length
+                        ? "slot-cont__count"
+                        : "slot-more";
+                    counter.textContent = `+${hiddenTotal}`;
+                    counter.title = hiddenNames.join(" · ");
+                    counter.setAttribute(
+                        "aria-label",
+                        `${hiddenTotal} autre${hiddenTotal > 1 ? "s" : ""} cours : ${hiddenNames.join(", ")}`,
+                    );
+                    if (continuations.length) {
+                        continuations[0].appendChild(counter);
+                    } else {
+                        wrapper.lastElementChild.appendChild(counter);
+                    }
                 }
 
                 cell.classList.add("slot--course");
+                if (continuations.length) {
+                    cell.classList.add("slot--continues");
+                    if (!firstSlots.length) {
+                        cell.classList.add("slot--only-cont");
+                    }
+                }
                 cell.appendChild(wrapper);
                 ariaLabel += names.length
                     ? `, ${names.join(", ")}`

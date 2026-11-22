@@ -637,6 +637,171 @@ def main():
         page.evaluate("applyDensity('confort')")
         page.wait_for_timeout(250)
 
+        # ---------- 12b-bis. lisibilité des cours dans la grille ----------
+        page.evaluate(
+            """() => {
+                document.getElementById('schedule-type-selector').value = 'class';
+                updateScheduleTypeSelector();
+                document.getElementById('schedule-item-selector').value = 'c1';
+                filterScheduleByItem();
+            }"""
+        )
+        page.wait_for_timeout(400)
+        card = page.evaluate(
+            """() => {
+                const visible = (el) => el.getBoundingClientRect().height > 0;
+                const rich = [...document.querySelectorAll('.slot-course--rich')].filter(visible);
+                if (!rich.length) return null;
+                const node = rich[0];
+                const meta = node.querySelector('.slot-course__meta');
+                return {
+                    count: rich.length,
+                    name: node.querySelector('.slot-course__name').textContent.trim(),
+                    meta: meta ? meta.textContent.trim() : '',
+                    metaShown: meta ? getComputedStyle(meta).display !== 'none' : false,
+                    tag: !!node.querySelector('.slot-course__tag'),
+                    height: Math.round(node.getBoundingClientRect().height),
+                };
+            }"""
+        )
+        check(
+            "cours seul : bloc à deux lignes",
+            card is not None and card["metaShown"] and card["height"] >= 28,
+            f'{card["count"]} cours seuls, {card["height"]} px' if card else "aucun",
+        )
+        check(
+            "cours seul : professeur et salle affichés",
+            card is not None and " · " in card["meta"],
+            card["meta"] if card else "",
+        )
+        check(
+            "cours seul : étiquette de classe masquée dans la vue classe",
+            card is not None and not card["tag"],
+            card["name"] if card else "",
+        )
+        bands = page.evaluate(
+            """() => {
+                const visible = (el) => el.getBoundingClientRect().height > 0;
+                const cell = [...document.querySelectorAll('td.slot--only-cont')].filter(visible)[0];
+                if (!cell) return null;
+                const strip = cell.querySelector('.slot-cont');
+                return {
+                    cell: Math.round(cell.getBoundingClientRect().height),
+                    strip: Math.round(strip.getBoundingClientRect().height),
+                    name: strip.querySelector('.slot-cont__name').textContent.trim(),
+                };
+            }"""
+        )
+        check(
+            "suite de cours : bande sur toute la hauteur",
+            bands is not None and bands["strip"] >= bands["cell"] - 2,
+            f'{bands["strip"]}/{bands["cell"]} px — {bands["name"]}' if bands else "aucune",
+        )
+
+        page.evaluate("clearScheduleFilter()")
+        page.wait_for_timeout(350)
+        grid = page.evaluate(
+            """() => {
+                const visible = (el) => el.getBoundingClientRect().height > 0;
+                const cells = [...document.querySelectorAll('table.timetable td.slot')].filter(visible);
+                const crowded = cells.filter((td) => td.querySelector('.slot-more'));
+                const overflow = cells.filter((td) => {
+                    const list = td.querySelector('.slot__list');
+                    return list && list.scrollHeight > list.clientHeight + 1;
+                });
+                const counters = cells.filter((td) => td.querySelectorAll('.slot-more, .slot-cont__count').length > 1);
+                const rows = cells.filter((td) => {
+                    const list = td.querySelector('.slot__list');
+                    return list && list.children.length > 2;
+                });
+                const clipped = [...document.querySelectorAll('table.timetable td.slot .slot-course__name')]
+                    .filter((n) => n.offsetParent !== null && n.scrollWidth > n.clientWidth + 1);
+                const badge = crowded.length ? crowded[0].querySelector('.slot-more') : null;
+                return {
+                    cells: cells.length,
+                    crowded: crowded.length,
+                    tooMany: crowded.filter((td) => td.querySelectorAll('.slot-course').length > 2).length,
+                    overflow: overflow.length,
+                    multiCounter: counters.length,
+                    extraRows: rows.length,
+                    clipped: clipped.length,
+                    badge: badge ? badge.textContent.trim() : '',
+                    badgeTitle: badge ? (badge.getAttribute('title') || '') : '',
+                };
+            }"""
+        )
+        check(
+            "créneau chargé : deux puces au maximum",
+            grid["crowded"] > 0 and grid["tooMany"] == 0,
+            f'{grid["crowded"]} créneaux chargés sur {grid["cells"]}',
+        )
+        check(
+            "créneau chargé : compteur « +N » avec le détail",
+            grid["badge"].startswith("+")
+            and grid["badge"][1:].isdigit()
+            and bool(grid["badgeTitle"]),
+            f'{grid["badge"]} — {grid["badgeTitle"]}',
+        )
+        check(
+            "créneau chargé : un seul compteur par créneau",
+            grid["multiCounter"] == 0,
+            f'{grid["multiCounter"]} créneaux à plusieurs compteurs',
+        )
+        check(
+            "créneau chargé : deux lignes de contenu au maximum",
+            grid["extraRows"] == 0,
+            f'{grid["extraRows"]} créneaux sur trois lignes',
+        )
+        check(
+            "intitulés des cours non rognés",
+            grid["clipped"] == 0,
+            f'{grid["clipped"]} intitulés tronqués',
+        )
+        check(
+            "aucun créneau ne déborde de sa rangée",
+            grid["overflow"] == 0,
+            f'{grid["overflow"]} débordements',
+        )
+
+        page.set_viewport_size({"width": 1100, "height": 900})
+        page.wait_for_timeout(400)
+        day_view = page.evaluate(
+            """() => ({
+                tabs: getComputedStyle(document.querySelector('.day-tabs')).display,
+                days: [...document.querySelectorAll('table.timetable thead th[data-day]')]
+                    .filter((th) => th.offsetParent !== null).length,
+                truncated: [...document.querySelectorAll('table.timetable .slot-course__name')]
+                    .filter((n) => n.offsetParent !== null && n.scrollWidth > n.clientWidth + 1).length,
+            })"""
+        )
+        check(
+            "vue jour jusqu'à 1 199 px",
+            day_view["tabs"] != "none" and day_view["days"] == 1,
+            f'{day_view["days"]} jour, barre {day_view["tabs"]}',
+        )
+        check(
+            "vue jour : intitulés non tronqués",
+            day_view["truncated"] == 0,
+            f'{day_view["truncated"]} noms tronqués',
+        )
+
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.wait_for_timeout(400)
+        week_view = page.evaluate(
+            """() => ({
+                tabs: getComputedStyle(document.querySelector('.day-tabs')).display,
+                days: [...document.querySelectorAll('table.timetable thead th[data-day]')]
+                    .filter((th) => th.offsetParent !== null).length,
+            })"""
+        )
+        check(
+            "vue semaine à partir de 1 200 px",
+            week_view["tabs"] == "none" and week_view["days"] >= 5,
+            f'{week_view["days"]} jours, barre {week_view["tabs"]}',
+        )
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_timeout(300)
+
         # ---------- 12c. onglet Professeurs (studio) ----------
         page.evaluate("switchTab('teachers')")
         page.wait_for_timeout(400)
