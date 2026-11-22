@@ -2277,6 +2277,10 @@ input[type="search"]::-webkit-search-cancel-button {
     --chip-gap: 3px;
     --cont-h: 14px;
     --list-h: 46px;
+    position: relative;
+    /* contexte d'empilement : les raccords (z-index -1) passent derrière les
+       cartes, jamais devant */
+    isolation: isolate;
     height: 52px;
     padding: 3px;
     vertical-align: top;
@@ -2298,6 +2302,7 @@ input[type="search"]::-webkit-search-cancel-button {
    continuité) et, collé à droite quand il y en a, le compteur des cours
    masqués. Le compteur ne prend jamais de ligne à lui seul. */
 .slot-row {
+    position: relative;
     display: flex;
     align-items: center;
     flex: none;
@@ -2322,7 +2327,9 @@ input[type="search"]::-webkit-search-cancel-button {
        des heures. */
     max-height: var(--list-h);
     min-height: 0;
-    overflow: hidden;
+    /* Les raccords de continuité débordent de la liste pour rejoindre le bord
+       de la cellule ; c'est la cellule (overflow: hidden) qui les recoupe. */
+    overflow: visible;
 }
 
 /* Un cours seul prend un bloc de deux lignes (intitulé, puis professeur et
@@ -2330,6 +2337,7 @@ input[type="search"]::-webkit-search-cancel-button {
    l'information utile y gagne beaucoup en lisibilité. Dès qu'un créneau
    contient plusieurs cours, on revient à des puces d'une ligne. */
 .slot-course {
+    position: relative;
     display: flex;
     align-items: center;
     flex: none;
@@ -2417,17 +2425,12 @@ input[type="search"]::-webkit-search-cancel-button {
     background: rgba(255, 255, 255, 0.1);
 }
 
-/* Suite d'un cours commencé dans une rangée précédente : bande teintée sur
-   toute la hauteur du créneau, le bloc de deux heures se lit d'un seul tenant. */
-.slot--continues {
-    padding-top: 0;
-    padding-bottom: 0;
-}
-
 /* Créneau qui ne contient que la suite d'un cours : la bande occupe toute la
-   hauteur, le bloc de deux heures se lit alors d'un seul tenant. */
+   hauteur, le bloc de deux heures se lit alors d'un seul tenant. Les marges
+   latérales restent celles des autres cellules, pour que le rail de gauche
+   tombe exactement dans l'axe des cartes. */
 .slot--only-cont {
-    padding: 0;
+    padding: 0 3px;
 }
 
 .slot--only-cont .slot__list {
@@ -2443,17 +2446,27 @@ input[type="search"]::-webkit-search-cancel-button {
     border-radius: 0;
 }
 
+/* Fin d'un bloc : le bas de la bande s'arrondit pour marquer la fin du cours,
+   alors qu'une bande qui continue descend jusqu'au bord de la cellule. */
+.slot--only-cont .slot-cont:not(.slot-cont--next) {
+    border-bottom-left-radius: var(--r-xs);
+    border-bottom-right-radius: var(--r-xs);
+}
+
 .slot-cont-list {
+    position: relative;
     display: flex;
     align-items: stretch;
     flex: none;
     gap: 3px;
     min-width: 0;
     height: var(--cont-h);
-    overflow: hidden;
+    /* visible : le raccord de la bande rejoint le bord de la cellule */
+    overflow: visible;
 }
 
 .slot-cont {
+    position: relative;
     display: flex;
     align-items: center;
     flex: 1 1 auto;
@@ -2476,11 +2489,45 @@ input[type="search"]::-webkit-search-cancel-button {
     background: color-mix(in srgb, var(--course-color) 16%, var(--surface));
 }
 
+.slot-cont__head {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    gap: 5px;
+    min-width: 0;
+}
+
 .slot-cont__name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.slot-cont__meta {
+    display: none;
+    min-width: 0;
+    color: var(--text-soft);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Seconde heure d'un cours qui occupe toute la cellule : la bande a la place
+   de répéter professeur et salle, comme la carte du premier créneau. */
+.slot--only-cont .slot-cont {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 1px;
+    padding: 4px 7px;
+}
+
+.slot--only-cont .slot-cont__meta {
+    display: block;
 }
 
 .slot-cont__tag {
@@ -2504,6 +2551,100 @@ input[type="search"]::-webkit-search-cancel-button {
     font-weight: 700;
 }
 
+/* ---------- Cours de plusieurs créneaux ---------------------------- */
+/* Cas courant (vue par classe, par professeur, par salle) : l'heure ne
+   contient qu'un cours, les créneaux qu'il occupe sont fusionnés par
+   `rowspan`. La cellule devient donc une seule grande carte : plus d'intitulé
+   répété, plus de faux raccord, et la durée se lit sur la carte. */
+.slot--span {
+    padding: 3px;
+    cursor: pointer;
+    vertical-align: top;
+}
+
+.slot--span .slot__list {
+    height: 100%;
+    /* la carte occupe toute la hauteur du bloc */
+    max-height: none;
+}
+
+/* La rangée prend la hauteur du bloc, la carte étire avec elle : la cellule
+   entière est la carte, on ne voit plus les créneaux qu'elle traverse. */
+.slot--span .slot-row {
+    flex: 1 1 auto;
+    align-items: stretch;
+}
+
+.slot--span .slot-course {
+    height: auto;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 5px 7px;
+    border-radius: var(--r-sm);
+    /* Le bloc est grand : un liseré intérieur garde ses bords nets sur le
+       blanc, et une teinte un peu plus claire l'empêche d'écraser la grille. */
+    background: color-mix(in srgb, var(--course-color) 9%, var(--surface));
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--course-color) 18%, transparent);
+}
+
+[data-theme="dark"] .slot--span .slot-course {
+    background: color-mix(in srgb, var(--course-color) 14%, var(--surface));
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--course-color) 26%, transparent);
+}
+
+/* Le bloc est plus haut que large sur une demi-heure : il garde son intitulé
+   en haut, et la plage horaire vient se poser en bas. */
+.slot-course--span .slot-course__time {
+    display: block;
+    margin-top: auto;
+    padding-top: 4px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---------- Raccord d'un cours sur plusieurs cellules ---------------
+   Quand l'heure contient plusieurs cours (vue « toutes les classes »), la
+   fusion est impossible. La carte de départ et la bande du créneau suivant
+   partagent alors la même teinte et le même rail de couleur : le bloc se lit
+   de cellule en cellule. La rangée dessine le rail (la carte recoupe ses
+   propres débordements, pas la liste). */
+.slot-row--next::after,
+.slot-cont-list--next::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 3px;
+    height: 120px;
+    border-radius: 2px;
+    background: var(--course-color);
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* Coins francs du côté du raccord, pour que la teinte se poursuive sans
+   encoche entre la carte et son prolongement. */
+.slot-course--next,
+.slot-cont--next {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.slot-course--cont,
+.slot-cont--cont {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
 .slot-more {
     display: inline-flex;
     align-items: center;
@@ -2521,6 +2662,47 @@ input[type="search"]::-webkit-search-cancel-button {
     letter-spacing: 0.01em;
     line-height: 1;
     white-space: nowrap;
+}
+
+/* ---------- Deux cours côte à côte ----------
+   Quand la colonne est assez large (vue jour sur tablette et bureau), deux
+   cours se placent côte à côte et retrouvent leur seconde ligne
+   (professeur · salle). En semaine, les colonnes sont trop étroites : les
+   cartes restent empilées, avec l'intitulé sur toute la largeur. */
+@media screen and (min-width: 640px) and (max-width: 1199px) {
+    .slot__list--pair {
+        flex-direction: row;
+        align-items: stretch;
+        gap: 4px;
+    }
+
+    .slot__list--pair > .slot-row {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .slot__list--pair > .slot-more {
+        align-self: center;
+    }
+
+    .slot__list--pair .slot-course {
+        height: 100%;
+        max-height: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        gap: 1px;
+        padding: 3px 7px;
+        border-radius: var(--r-sm);
+    }
+
+    .slot__list--pair .slot-course__meta {
+        display: block;
+    }
+}
+
+html[data-density="compact"] .slot__list--pair .slot-course {
+    padding: 2px 5px;
 }
 
 /* --- Fiches de détail (créneau, cours) ------------------------------- */

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests fonctionnels Playwright pour Flow-EDT."""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -612,7 +613,7 @@ def main():
         # hauteur de ligne : la grille ne doit plus se déformer
         row_heights = page.eval_on_selector_all(
             "#schedule table.timetable:not([hidden]) tbody td.slot",
-            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height))",
+            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height / Math.max(1, e.rowSpan || 1)))",
         )
         row_heights = [height for height in row_heights if height > 0]
         check(
@@ -624,7 +625,7 @@ def main():
         page.wait_for_timeout(300)
         compact_heights = page.eval_on_selector_all(
             "#schedule table.timetable:not([hidden]) tbody td.slot",
-            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height))",
+            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height / Math.max(1, e.rowSpan || 1)))",
         )
         compact_heights = [height for height in compact_heights if height > 0]
         check(
@@ -679,6 +680,10 @@ def main():
             card is not None and not card["tag"],
             card["name"] if card else "",
         )
+        # Vue globale : plusieurs cours se partagent l'heure, la fusion est
+        # impossible et la suite s'affiche en bande pleine hauteur.
+        page.evaluate("clearScheduleFilter()")
+        page.wait_for_timeout(350)
         bands = page.evaluate(
             """() => {
                 const visible = (el) => el.getBoundingClientRect().height > 0;
@@ -697,6 +702,105 @@ def main():
             bands is not None and bands["strip"] >= bands["cell"] - 2,
             f'{bands["strip"]}/{bands["cell"]} px — {bands["name"]}' if bands else "aucune",
         )
+        page.evaluate(
+            """() => {
+                document.getElementById('schedule-type-selector').value = 'class';
+                updateScheduleTypeSelector();
+                document.getElementById('schedule-item-selector').value = 'c1';
+                filterScheduleByItem();
+            }"""
+        )
+        page.wait_for_timeout(350)
+
+        # cours de deux heures : les créneaux qu'il occupe sont fusionnés en
+        # une seule cellule (`rowspan`), donc une seule carte avec sa plage
+        merged = page.evaluate(
+            """() => {
+                const visible = (el) => el.getBoundingClientRect().height > 0;
+                const cells = [...document.querySelectorAll('table.timetable td.slot--span')].filter(visible);
+                if (!cells.length) return null;
+                const cell = cells[0];
+                const card = cell.querySelector('.slot-course');
+                const time = cell.querySelector('.slot-course__time');
+                const rect = cell.getBoundingClientRect();
+                const cardRect = card.getBoundingClientRect();
+                return {
+                    cells: cells.length,
+                    span: cell.rowSpan,
+                    height: Math.round(rect.height),
+                    card: Math.round(cardRect.height),
+                    inside:
+                        cardRect.top >= rect.top - 1 &&
+                        cardRect.bottom <= rect.bottom + 1 &&
+                        cardRect.left >= rect.left - 1 &&
+                        cardRect.right <= rect.right + 1,
+                    cards: cell.querySelectorAll('.slot-course').length,
+                    bands: cell.querySelectorAll('.slot-cont').length,
+                    name: cell.querySelector('.slot-course__name').textContent.trim(),
+                    time: time ? time.textContent.trim() : '',
+                    timeShown: time ? getComputedStyle(time).display !== 'none' : false,
+                };
+            }"""
+        )
+        check(
+            "cours de deux heures : une seule cellule fusionnée",
+            merged is not None and merged["span"] >= 4,
+            f'{merged["cells"]} blocs, rowspan {merged["span"]}' if merged else "aucun",
+        )
+        check(
+            "cours de deux heures : la carte remplit le bloc",
+            merged is not None
+            and merged["inside"]
+            and merged["card"] >= merged["height"] - 8,
+            f'{merged["card"]}/{merged["height"]} px' if merged else "",
+        )
+        check(
+            "cours de deux heures : un seul intitulé, aucune bande",
+            merged is not None and merged["cards"] == 1 and merged["bands"] == 0,
+            f'{merged["cards"]} carte(s), {merged["bands"]} bande(s)' if merged else "",
+        )
+        check(
+            "cours de deux heures : plage horaire affichée",
+            merged is not None
+            and merged["timeShown"]
+            and re.fullmatch(
+                r"\d{1,2}:\d{2} – \d{1,2}:\d{2}", merged["time"]
+            )
+            is not None,
+            f'{merged["time"]} — {merged["name"]}' if merged else "",
+        )
+        page.evaluate(
+            """() => {
+                const cell = [...document.querySelectorAll('table.timetable td.slot--span')]
+                    .find((td) => td.getBoundingClientRect().height > 0);
+                cell.click();
+            }"""
+        )
+        page.wait_for_timeout(350)
+        detail = page.evaluate(
+            """() => {
+                const modal = document.getElementById('edit-modal');
+                const body = document.getElementById('modal-body');
+                return {
+                    open: !!modal && modal.classList.contains('active'),
+                    title: (document.getElementById('modal-title') || {}).textContent || '',
+                    text: body ? body.textContent.replace(/\\s+/g, ' ').trim() : '',
+                };
+            }"""
+        )
+        check(
+            "cours de deux heures : clic sur le bloc ouvre le détail",
+            detail["open"]
+            and merged is not None
+            and merged["name"] in detail["text"]
+            and merged["time"].split(" – ")[0] in detail["text"],
+            f'{detail["title"]} — {detail["text"][:70]}',
+        )
+        page.evaluate(
+            "() => document.getElementById('edit-modal').classList.remove('active')"
+        )
+        page.wait_for_timeout(200)
+
 
         page.evaluate("clearScheduleFilter()")
         page.wait_for_timeout(350)
@@ -707,7 +811,13 @@ def main():
                 const crowded = cells.filter((td) => td.querySelector('.slot-more'));
                 const overflow = cells.filter((td) => {
                     const list = td.querySelector('.slot__list');
-                    return list && list.scrollHeight > list.clientHeight + 1;
+                    if (!list) return false;
+                    const box = list.getBoundingClientRect();
+                    return [...list.querySelectorAll('.slot-course, .slot-cont, .slot-more')]
+                        .some((node) => {
+                            const r = node.getBoundingClientRect();
+                            return r.top < box.top - 1 || r.bottom > box.bottom + 1;
+                        });
                 });
                 const counters = cells.filter((td) => td.querySelectorAll('.slot-more, .slot-cont__count').length > 1);
                 const rows = cells.filter((td) => {
@@ -1482,7 +1592,7 @@ def main():
         dpage.wait_for_timeout(500)
         desk_heights = dpage.eval_on_selector_all(
             "#schedule table.timetable:not([hidden]) tbody td.slot",
-            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height))",
+            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height / Math.max(1, e.rowSpan || 1)))",
         )
         desk_heights = [height for height in desk_heights if height > 0]
         check(
@@ -1497,7 +1607,7 @@ def main():
         dpage.wait_for_timeout(300)
         desk_compact = dpage.eval_on_selector_all(
             "#schedule table.timetable:not([hidden]) tbody td.slot",
-            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height))",
+            "els => els.filter(e => e.offsetParent !== null).map(e => Math.round(e.getBoundingClientRect().height / Math.max(1, e.rowSpan || 1)))",
         )
         desk_compact = [height for height in desk_compact if height > 0]
         check(

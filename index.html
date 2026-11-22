@@ -2325,6 +2325,10 @@ input[type="search"]::-webkit-search-cancel-button {
     --chip-gap: 3px;
     --cont-h: 14px;
     --list-h: 46px;
+    position: relative;
+    /* contexte d'empilement : les raccords (z-index -1) passent derrière les
+       cartes, jamais devant */
+    isolation: isolate;
     height: 52px;
     padding: 3px;
     vertical-align: top;
@@ -2346,6 +2350,7 @@ input[type="search"]::-webkit-search-cancel-button {
    continuité) et, collé à droite quand il y en a, le compteur des cours
    masqués. Le compteur ne prend jamais de ligne à lui seul. */
 .slot-row {
+    position: relative;
     display: flex;
     align-items: center;
     flex: none;
@@ -2370,7 +2375,9 @@ input[type="search"]::-webkit-search-cancel-button {
        des heures. */
     max-height: var(--list-h);
     min-height: 0;
-    overflow: hidden;
+    /* Les raccords de continuité débordent de la liste pour rejoindre le bord
+       de la cellule ; c'est la cellule (overflow: hidden) qui les recoupe. */
+    overflow: visible;
 }
 
 /* Un cours seul prend un bloc de deux lignes (intitulé, puis professeur et
@@ -2378,6 +2385,7 @@ input[type="search"]::-webkit-search-cancel-button {
    l'information utile y gagne beaucoup en lisibilité. Dès qu'un créneau
    contient plusieurs cours, on revient à des puces d'une ligne. */
 .slot-course {
+    position: relative;
     display: flex;
     align-items: center;
     flex: none;
@@ -2465,17 +2473,12 @@ input[type="search"]::-webkit-search-cancel-button {
     background: rgba(255, 255, 255, 0.1);
 }
 
-/* Suite d'un cours commencé dans une rangée précédente : bande teintée sur
-   toute la hauteur du créneau, le bloc de deux heures se lit d'un seul tenant. */
-.slot--continues {
-    padding-top: 0;
-    padding-bottom: 0;
-}
-
 /* Créneau qui ne contient que la suite d'un cours : la bande occupe toute la
-   hauteur, le bloc de deux heures se lit alors d'un seul tenant. */
+   hauteur, le bloc de deux heures se lit alors d'un seul tenant. Les marges
+   latérales restent celles des autres cellules, pour que le rail de gauche
+   tombe exactement dans l'axe des cartes. */
 .slot--only-cont {
-    padding: 0;
+    padding: 0 3px;
 }
 
 .slot--only-cont .slot__list {
@@ -2491,17 +2494,27 @@ input[type="search"]::-webkit-search-cancel-button {
     border-radius: 0;
 }
 
+/* Fin d'un bloc : le bas de la bande s'arrondit pour marquer la fin du cours,
+   alors qu'une bande qui continue descend jusqu'au bord de la cellule. */
+.slot--only-cont .slot-cont:not(.slot-cont--next) {
+    border-bottom-left-radius: var(--r-xs);
+    border-bottom-right-radius: var(--r-xs);
+}
+
 .slot-cont-list {
+    position: relative;
     display: flex;
     align-items: stretch;
     flex: none;
     gap: 3px;
     min-width: 0;
     height: var(--cont-h);
-    overflow: hidden;
+    /* visible : le raccord de la bande rejoint le bord de la cellule */
+    overflow: visible;
 }
 
 .slot-cont {
+    position: relative;
     display: flex;
     align-items: center;
     flex: 1 1 auto;
@@ -2524,11 +2537,45 @@ input[type="search"]::-webkit-search-cancel-button {
     background: color-mix(in srgb, var(--course-color) 16%, var(--surface));
 }
 
+.slot-cont__head {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    gap: 5px;
+    min-width: 0;
+}
+
 .slot-cont__name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.slot-cont__meta {
+    display: none;
+    min-width: 0;
+    color: var(--text-soft);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Seconde heure d'un cours qui occupe toute la cellule : la bande a la place
+   de répéter professeur et salle, comme la carte du premier créneau. */
+.slot--only-cont .slot-cont {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 1px;
+    padding: 4px 7px;
+}
+
+.slot--only-cont .slot-cont__meta {
+    display: block;
 }
 
 .slot-cont__tag {
@@ -2552,6 +2599,100 @@ input[type="search"]::-webkit-search-cancel-button {
     font-weight: 700;
 }
 
+/* ---------- Cours de plusieurs créneaux ---------------------------- */
+/* Cas courant (vue par classe, par professeur, par salle) : l'heure ne
+   contient qu'un cours, les créneaux qu'il occupe sont fusionnés par
+   `rowspan`. La cellule devient donc une seule grande carte : plus d'intitulé
+   répété, plus de faux raccord, et la durée se lit sur la carte. */
+.slot--span {
+    padding: 3px;
+    cursor: pointer;
+    vertical-align: top;
+}
+
+.slot--span .slot__list {
+    height: 100%;
+    /* la carte occupe toute la hauteur du bloc */
+    max-height: none;
+}
+
+/* La rangée prend la hauteur du bloc, la carte étire avec elle : la cellule
+   entière est la carte, on ne voit plus les créneaux qu'elle traverse. */
+.slot--span .slot-row {
+    flex: 1 1 auto;
+    align-items: stretch;
+}
+
+.slot--span .slot-course {
+    height: auto;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 5px 7px;
+    border-radius: var(--r-sm);
+    /* Le bloc est grand : un liseré intérieur garde ses bords nets sur le
+       blanc, et une teinte un peu plus claire l'empêche d'écraser la grille. */
+    background: color-mix(in srgb, var(--course-color) 9%, var(--surface));
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--course-color) 18%, transparent);
+}
+
+[data-theme="dark"] .slot--span .slot-course {
+    background: color-mix(in srgb, var(--course-color) 14%, var(--surface));
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--course-color) 26%, transparent);
+}
+
+/* Le bloc est plus haut que large sur une demi-heure : il garde son intitulé
+   en haut, et la plage horaire vient se poser en bas. */
+.slot-course--span .slot-course__time {
+    display: block;
+    margin-top: auto;
+    padding-top: 4px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---------- Raccord d'un cours sur plusieurs cellules ---------------
+   Quand l'heure contient plusieurs cours (vue « toutes les classes »), la
+   fusion est impossible. La carte de départ et la bande du créneau suivant
+   partagent alors la même teinte et le même rail de couleur : le bloc se lit
+   de cellule en cellule. La rangée dessine le rail (la carte recoupe ses
+   propres débordements, pas la liste). */
+.slot-row--next::after,
+.slot-cont-list--next::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 3px;
+    height: 120px;
+    border-radius: 2px;
+    background: var(--course-color);
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* Coins francs du côté du raccord, pour que la teinte se poursuive sans
+   encoche entre la carte et son prolongement. */
+.slot-course--next,
+.slot-cont--next {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.slot-course--cont,
+.slot-cont--cont {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
 .slot-more {
     display: inline-flex;
     align-items: center;
@@ -2569,6 +2710,47 @@ input[type="search"]::-webkit-search-cancel-button {
     letter-spacing: 0.01em;
     line-height: 1;
     white-space: nowrap;
+}
+
+/* ---------- Deux cours côte à côte ----------
+   Quand la colonne est assez large (vue jour sur tablette et bureau), deux
+   cours se placent côte à côte et retrouvent leur seconde ligne
+   (professeur · salle). En semaine, les colonnes sont trop étroites : les
+   cartes restent empilées, avec l'intitulé sur toute la largeur. */
+@media screen and (min-width: 640px) and (max-width: 1199px) {
+    .slot__list--pair {
+        flex-direction: row;
+        align-items: stretch;
+        gap: 4px;
+    }
+
+    .slot__list--pair > .slot-row {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .slot__list--pair > .slot-more {
+        align-self: center;
+    }
+
+    .slot__list--pair .slot-course {
+        height: 100%;
+        max-height: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        gap: 1px;
+        padding: 3px 7px;
+        border-radius: var(--r-sm);
+    }
+
+    .slot__list--pair .slot-course__meta {
+        display: block;
+    }
+}
+
+html[data-density="compact"] .slot__list--pair .slot-course {
+    padding: 2px 5px;
 }
 
 /* --- Fiches de détail (créneau, cours) ------------------------------- */
@@ -8342,6 +8524,58 @@ html[data-density="compact"] .legend__dot {
                 // montrer tous les cours présents, même quand un filtre en masque une partie.
                 const fullSchedule = sourceSchedule || scheduleData;
 
+                // ---------- Un cours de deux heures = une seule cellule ----------
+                // Tant qu'une heure contient un seul cours affiché, les créneaux qu'il
+                // occupe sont fusionnés (`rowspan`) : la carte prend la hauteur réelle du
+                // cours, son intitulé n'est plus répété cellule après cellule et la durée
+                // se lit d'un coup d'œil. Dès qu'un créneau affiche plusieurs cours en
+                // parallèle (vue « toutes les classes »), la fusion est impossible : on
+                // revient aux cartes empilées reliées par leur bande de continuité.
+                const spanAt = {};
+                const spanSkip = {};
+                DAYS.forEach((day) => {
+                    spanAt[day] = {};
+                    spanSkip[day] = {};
+                    const itemsAt = (slot) => {
+                        const value = scheduleData[day] && scheduleData[day][slot];
+                        if (!value) return [];
+                        return (Array.isArray(value) ? value : [value]).filter(
+                            (placement) => placement && placement.courseId,
+                        );
+                    };
+                    TIME_SLOTS.forEach((slot, index) => {
+                        if (spanSkip[day][slot]) return;
+                        const items = itemsAt(slot);
+                        if (items.length !== 1) return;
+                        const item = items[0];
+                        // Seul le premier créneau du cours ouvre le bloc : une partie
+                        // suivante ne fusionne pas, elle est déjà couverte.
+                        if (item.slotIndex) return;
+                        let length = 1;
+                        while (index + length < TIME_SLOTS.length) {
+                            const nextItems = itemsAt(TIME_SLOTS[index + length]);
+                            if (nextItems.length !== 1) break;
+                            const next = nextItems[0];
+                            if (next.courseId !== item.courseId) break;
+                            if ((next.slotIndex || 0) !== length) break;
+                            length += 1;
+                        }
+                        if (length < 2) return;
+                        spanAt[day][slot] = length;
+                        for (let offset = 1; offset < length; offset += 1) {
+                            spanSkip[day][TIME_SLOTS[index + offset]] = true;
+                        }
+                    });
+                });
+
+                // Fin d'un bloc fusionné, exprimée comme une heure de cours.
+                const spanEndLabel = (slot, length) => {
+                    const index = TIME_SLOTS.indexOf(slot);
+                    const last = index + length - 1;
+                    if (last < 0 || last >= TIME_SLOTS.length) return "";
+                    return TIME_SLOTS[last].split("-")[1];
+                };
+
                 TIME_SLOTS.forEach((slot) => {
                     const row = document.createElement("tr");
 
@@ -8352,6 +8586,9 @@ html[data-density="compact"] .legend__dot {
                     row.appendChild(timeCell);
 
                     DAYS.forEach((day) => {
+                        // Créneau déjà couvert par la cellule fusionnée du dessus.
+                        if (spanSkip[day] && spanSkip[day][slot]) return;
+
                         const cell = document.createElement("td");
                         const slotData = scheduleData[day] && scheduleData[day][slot];
                         const sourceSlotData =
@@ -8383,7 +8620,19 @@ html[data-density="compact"] .legend__dot {
                         cell.setAttribute("role", "button");
                         cell.className = "slot";
 
+                        // Hauteur réelle du cours quand il occupe plusieurs créneaux et
+                        // qu'aucun autre cours ne partage l'heure.
+                        const spanLength = (spanAt[day] && spanAt[day][slot]) || 1;
+                        const spanEnd = spanLength > 1 ? spanEndLabel(slot, spanLength) : "";
+                        if (spanLength > 1) {
+                            cell.rowSpan = spanLength;
+                            cell.classList.add("slot--span");
+                        }
+
                         let ariaLabel = `${day}, ${slot.replace("-", " – ")}`;
+                        if (spanLength > 1) {
+                            ariaLabel = `${day}, ${slotStart(slot)} – ${spanEnd || slotStart(slot)}`;
+                        }
 
                         if (slotData) {
                             const list = Array.isArray(slotData) ? slotData : [slotData];
@@ -8450,10 +8699,44 @@ html[data-density="compact"] .legend__dot {
                                 if (room && viewType !== "room") metaParts.push(room.name);
                                 const meta = metaParts.join(" · ");
 
+                                // Le créneau suivant contient-il la suite de ce cours ?
+                                // On interroge le planning affiché : inutile de relier une
+                                // cellule qui n'affiche pas la suite.
+                                const slotIndex = TIME_SLOTS.indexOf(slot);
+                                const nextSlot =
+                                    slotIndex >= 0 && slotIndex < TIME_SLOTS.length - 1
+                                        ? TIME_SLOTS[slotIndex + 1]
+                                        : null;
+                                const nextCell = nextSlot
+                                    ? scheduleData[day] && scheduleData[day][nextSlot]
+                                    : null;
+                                const nextItems = Array.isArray(nextCell)
+                                    ? nextCell
+                                    : nextCell
+                                      ? [nextCell]
+                                      : [];
+                                const continuesBelow = Boolean(
+                                    nextSlot &&
+                                        // créneau avalé par la cellule fusionnée : la suite
+                                        // est déjà dans cette carte
+                                        !(spanSkip[day] && spanSkip[day][nextSlot]) &&
+                                        nextItems.some(
+                                            (next) =>
+                                                next &&
+                                                next.courseId === item.courseId &&
+                                                (next.slotIndex || 0) ===
+                                                    (item.slotIndex || 0) + 1,
+                                        ),
+                                );
                                 if (isFirstSlot) {
                                     names.push(course.name);
                                     const element = document.createElement("div");
-                                    element.className = "slot-course";
+                                    element.className =
+                                        "slot-course" +
+                                        (continuesBelow ? " slot-course--next" : "");
+                                    if (spanLength > 1) {
+                                        element.classList.add("slot-course--span");
+                                    }
                                     element.style.setProperty("--course-color", color);
                                     element.title = detail;
                                     element.innerHTML = `
@@ -8461,16 +8744,26 @@ html[data-density="compact"] .legend__dot {
                                             <span class="slot-course__name">${escapeHtml(course.name)}</span>
                                             ${showTag && tagLabel ? `<span class="slot-course__tag">${escapeHtml(tagLabel)}</span>` : ""}
                                         </span>
-                                        ${meta ? `<span class="slot-course__meta">${escapeHtml(meta)}</span>` : ""}`;
+                                        ${meta ? `<span class="slot-course__meta">${escapeHtml(meta)}</span>` : ""}
+                                        ${
+                                            spanLength > 1
+                                                ? `<span class="slot-course__time">${escapeHtml(slotStart(slot))} – ${escapeHtml(spanEnd || slotStart(slot))}</span>`
+                                                : ""
+                                        }`;
                                     firstSlots.push(element);
                                 } else {
                                     const chip = document.createElement("div");
-                                    chip.className = "slot-cont";
+                                    chip.className =
+                                        "slot-cont slot-cont--cont" +
+                                        (continuesBelow ? " slot-cont--next" : "");
                                     chip.style.setProperty("--course-color", color);
                                     chip.title = `${course.name} (suite)${detail ? ` · ${detail}` : ""}`;
                                     chip.innerHTML = `
-                                        <span class="slot-cont__name">${escapeHtml(course.name)}</span>
-                                        ${showTag && tagLabel ? `<span class="slot-cont__tag">${escapeHtml(tagLabel)}</span>` : ""}`;
+                                        <span class="slot-cont__head">
+                                            <span class="slot-cont__name">${escapeHtml(course.name)}</span>
+                                            ${showTag && tagLabel ? `<span class="slot-cont__tag">${escapeHtml(tagLabel)}</span>` : ""}
+                                        </span>
+                                        ${meta ? `<span class="slot-cont__meta">${escapeHtml(meta)}</span>` : ""}`;
                                     continuations.push(chip);
                                     contNames.push(course.name);
                                 }
@@ -8508,15 +8801,43 @@ html[data-density="compact"] .legend__dot {
                                 return row;
                             };
 
+                            // Deux cours : ils peuvent se placer côte à côte quand la
+                            // colonne est assez large (vue jour). Le compteur éventuel
+                            // devient alors une pastille au bout de la rangée.
+                            const paired = !continuations.length && shown === 2;
+                            if (paired) {
+                                wrapper.classList.add("slot__list--pair");
+                            }
+
                             // Une seule ligne par cours : les puces ne partagent jamais une
                             // rangée, sinon les intitulés finissaient en « Es… ».
                             firstSlots.slice(0, shown).forEach((element) => {
-                                addRow([element]);
+                                const row = addRow([element]);
+                                if (element.classList.contains("slot-course--next")) {
+                                    // le raccord est dessiné par la rangée, qui n'écrête
+                                    // pas ses débordements comme la carte
+                                    row.classList.add("slot-row--next");
+                                    row.style.setProperty(
+                                        "--course-color",
+                                        element.style.getPropertyValue("--course-color"),
+                                    );
+                                }
                             });
                             if (continuations.length) {
                                 const stack = document.createElement("div");
                                 stack.className = "slot-cont-list";
                                 stack.appendChild(continuations[0]);
+                                const band = continuations[0];
+                                const bandColor = band.style.getPropertyValue("--course-color");
+                                if (bandColor) {
+                                    stack.style.setProperty("--course-color", bandColor);
+                                }
+                                if (band.classList.contains("slot-cont--cont")) {
+                                    stack.classList.add("slot-cont-list--cont");
+                                }
+                                if (band.classList.contains("slot-cont--next")) {
+                                    stack.classList.add("slot-cont-list--next");
+                                }
                                 wrapper.appendChild(stack);
                             }
                             // Un seul compteur par créneau, accroché à la dernière rangée
@@ -8537,8 +8858,18 @@ html[data-density="compact"] .legend__dot {
                                     "aria-label",
                                     `${hiddenTotal} autre${hiddenTotal > 1 ? "s" : ""} cours : ${hiddenNames.join(", ")}`,
                                 );
+                                // Le compteur reste dans la dernière rangée : en colonne
+                                // il ferme la ligne du bas, côte à côte il se place au bout
+                                // de la seconde carte. Ainsi la cellule garde deux lignes
+                                // quelle que soit la largeur.
                                 if (continuations.length) {
-                                    continuations[0].appendChild(counter);
+                                    // Dans la bande, le compteur rejoint la ligne du
+                                    // haut : empilé sous l'intitulé il ajoutait une
+                                    // troisième ligne et faisait grandir la rangée.
+                                    const bandHead = continuations[0].querySelector(
+                                        ".slot-cont__head",
+                                    );
+                                    (bandHead || continuations[0]).appendChild(counter);
                                 } else {
                                     wrapper.lastElementChild.appendChild(counter);
                                 }
@@ -8551,6 +8882,7 @@ html[data-density="compact"] .legend__dot {
                                     cell.classList.add("slot--only-cont");
                                 }
                             }
+
                             cell.appendChild(wrapper);
                             ariaLabel += names.length
                                 ? `, ${names.join(", ")}`
