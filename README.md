@@ -87,7 +87,9 @@ FlowEDT/
 ├── index.html              application complète (fichier généré)
 ├── icon.svg                icône source
 ├── icon-16/32/180/192/512  favicons et icône iOS
-├── LICENSE                 GPL-3.0
+├── LICENSE                 texte officiel GPL-3.0
+├── NOTICE                  copyright et résumé de la licence
+├── requirements-dev.txt    dépendances de développement
 ├── docs/                   captures d'écran du README
 └── .audit/                 chaîne de fabrication et de contrôle
     ├── index.original.html base HTML d'origine
@@ -130,4 +132,4 @@ python3 -m playwright install chromium
 Flow-EDT — générateur d'emplois du temps
 Copyright (C) 2026 B.Dupont
 
-Distribué sous licence **GNU General Public License v3.0** — voir [LICENSE](LICENSE).
+Distribué sous licence **GNU General Public License v3.0** — texte officiel dans [LICENSE](LICENSE), copyright et résumé dans [NOTICE](NOTICE).
