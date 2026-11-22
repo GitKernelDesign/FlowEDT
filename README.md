@@ -30,7 +30,7 @@ Générateur d'emplois du temps pour établissement scolaire, en **un seul fichi
 
 **Emploi du temps** — grille 6 jours × créneaux, semaines A et B, vues globale, par professeur, par classe ou par salle. Détection des conflits en temps réel : un professeur, une classe ou une salle ne peuvent jamais être occupés deux fois au même créneau.
 
-**Confort de lecture** — mode compact des tableaux (mémorisé), bascule clair/sombre, export PDF et CSV, impression.
+**Confort de lecture** — mode compact des tableaux (mémorisé), bascule clair/sombre, cartes de cours légèrement décalées quand un créneau en contient plusieurs, aperçu détaillé du créneau au survol (ou appui long au doigt), export PDF et CSV, impression.
 
 **Mobile** — menu burger, barre de navigation inférieure, feuilles modales, tableaux compacts ; toutes les fonctions restent accessibles en 390 px.
 
@@ -77,7 +77,7 @@ L'import remplace l'intégralité des données : exportez régulièrement un fic
 
 | Contrôle | Commande | Résultat |
 |---|---|---|
-| Tests fonctionnels | `python3 .audit/functional.py` | 140 tests (navigation, ressources, cours, conflits, génération, verrou anti double lancement, sauvegarde, mobile) |
+| Tests fonctionnels | `python3 .audit/functional.py` | 153 tests (navigation, ressources, cours, conflits, génération, verrou anti double lancement, sauvegarde, mobile) |
 | QA visuelle | `python3 .audit/shot.py final` | 5 onglets × 3 tailles (390 / 900 / 1440 px) : 0 erreur console, 0 débordement horizontal |
 
 ## Structure du projet

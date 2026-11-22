@@ -6,6 +6,8 @@ FUNCS2 = {}
 FUNCS2["renderScheduleTable"] = r"""
 function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
     if (!tbody) return;
+    // l'aperçu d'un créneau ne survit pas au redessin de la grille
+    hideSlotPeek();
     tbody.innerHTML = "";
     // `sourceSchedule` reste le planning complet : la carte d'un créneau doit
     // montrer tous les cours présents, même quand un filtre en masque une partie.
@@ -61,6 +63,9 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                 const names = [];
                 const firstSlots = [];
                 const continuations = [];
+                // Tout ce que la cellule contient, y compris ce que la grille
+                // ne peut pas montrer : l'aperçu au survol s'en sert.
+                const peekEntries = [];
 
                 list.forEach((item) => {
                     if (!item || !item.courseId) return;
@@ -88,22 +93,32 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                         (hg) => hg.id === course.classId,
                     );
 
+                    const classLabel = halfGroup
+                        ? halfGroup.groupName || classInfo
+                        : classInfo;
+                    peekEntries.push({
+                        courseId: course.id,
+                        name: course.name,
+                        tag: classLabel,
+                        teacher: teacherNames,
+                        room: room ? room.name : "",
+                        color,
+                        suite: !isFirstSlot,
+                    });
+
                     if (isFirstSlot) {
                         names.push(course.name);
-                        const classLabel = halfGroup
-                            ? halfGroup.groupName || classInfo
-                            : classInfo;
-                        const detail = [course.name, classLabel, teacherNames]
-                            .concat(room ? [room.name] : [])
-                            .filter(Boolean)
-                            .join(" · ");
                         // Une seule ligne par cours : la grille garde des lignes
                         // de hauteur fixe, donc un créneau chargé ne déforme plus
-                        // l'axe des heures. Le détail complet reste au survol.
+                        // l'axe des heures. Le détail complet s'affiche dans
+                        // l'aperçu au survol ; pour un créneau à un seul cours,
+                        // l'infobulle native reste le raccourci le plus direct.
                         const element = document.createElement("div");
+                        element._detail = [course.name, classLabel, teacherNames, room ? room.name : ""]
+                            .filter(Boolean)
+                            .join(" · ");
                         element.className = "slot-course";
                         element.style.setProperty("--course-color", color);
-                        element.title = detail;
                         element.innerHTML = `
                             <span class="slot-course__name">${escapeHtml(course.name)}</span>
                             ${classLabel ? `<span class="slot-course__tag">${escapeHtml(classLabel)}</span>` : ""}`;
@@ -112,7 +127,6 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                         const chip = document.createElement("span");
                         chip.className = "slot-cont";
                         chip.style.setProperty("--course-color", color);
-                        chip.title = `${course.name} (suite)`;
                         chip.innerHTML = `<span class="slot-cont__dot" aria-hidden="true"></span><span class="slot-cont__name">${escapeHtml(course.name)}</span>`;
                         continuations.push(chip);
                     }
@@ -123,13 +137,21 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                 const MAX_VISIBLE = 2;
                 const shown =
                     firstSlots.length > MAX_VISIBLE ? 1 : firstSlots.length;
-                firstSlots.slice(0, shown).forEach((element) => {
+                if (firstSlots.length === 1) {
+                    firstSlots[0].title = firstSlots[0]._detail || "";
+                }
+                firstSlots.slice(0, shown).forEach((element, rank) => {
+                    // le rang décale légèrement la carte : deux cours empilés
+                    // se lisent comme deux cartes, pas comme une barre coupée
+                    element.style.setProperty("--stack", String(rank));
+                    element.dataset.peek = "1";
                     wrapper.appendChild(element);
                 });
                 if (firstSlots.length > MAX_VISIBLE) {
                     const more = document.createElement("span");
                     more.className = "slot-more";
                     more.textContent = `+${firstSlots.length - shown} autres`;
+                    more.dataset.peek = "1";
                     wrapper.appendChild(more);
                 }
                 if (continuations.length) {
@@ -146,6 +168,7 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
                 }
 
                 cell.classList.add("slot--course");
+                cell._peek = peekEntries;
                 cell.appendChild(wrapper);
                 ariaLabel += names.length
                     ? `, ${names.join(", ")}`
@@ -186,6 +209,276 @@ function renderScheduleTable(scheduleData, tbody, sourceSchedule) {
 
     updateHoursStat();
     updateConflictCount();
+}
+"""
+
+FUNCS2["slotPeekState"] = r"""
+function slotPeekState() {
+    if (!window.__slotPeek) {
+        window.__slotPeek = {
+            cell: null,
+            timer: 0,
+            press: 0,
+            suppressClick: false,
+        };
+    }
+    return window.__slotPeek;
+}
+"""
+
+FUNCS2["ensureSlotPeek"] = r"""
+function ensureSlotPeek() {
+    let peek = document.getElementById("slot-peek");
+    if (peek) return peek;
+    peek = document.createElement("div");
+    peek.id = "slot-peek";
+    peek.className = "slot-peek";
+    peek.setAttribute("role", "tooltip");
+    peek.setAttribute("aria-hidden", "true");
+    peek.hidden = true;
+    document.body.appendChild(peek);
+    return peek;
+}
+"""
+
+FUNCS2["slotPeekUseful"] = r"""
+function slotPeekUseful(cell) {
+    const entries = (cell && cell._peek) || [];
+    if (!entries.length) return false;
+    // Plusieurs cours, une suite, ou un intitulé rogné : la carte ne dit pas
+    // tout, l'aperçu prend le relais.
+    if (entries.length > 1) return true;
+    if (cell.querySelector(".slot-cont-list")) return true;
+    return [
+        ...cell.querySelectorAll(
+            ".slot-course__name, .slot-course__tag, .slot-cont__name",
+        ),
+    ].some((node) => node.scrollWidth > node.clientWidth + 1);
+}
+"""
+
+FUNCS2["slotPeekMarkup"] = r"""
+function slotPeekMarkup(cell) {
+    const entries = (cell && cell._peek) || [];
+    const shown = entries.slice(0, 6);
+    const rest = entries.length - shown.length;
+    const distinct = new Set(entries.map((entry) => entry.courseId)).size;
+    const items = shown
+        .map(
+            (entry) => `
+            <li class="slot-peek__item" style="--course-color:${entry.color}">
+                <span class="slot-peek__dot" aria-hidden="true"></span>
+                <span class="slot-peek__text">
+                    <span class="slot-peek__name">${escapeHtml(entry.name)}${
+                        entry.suite
+                            ? '<span class="slot-peek__flag">suite</span>'
+                            : ""
+                    }</span>
+                    <span class="slot-peek__meta">${escapeHtml(
+                        [entry.tag, entry.teacher, entry.room]
+                            .filter(Boolean)
+                            .join(" · ") || "Sans professeur ni salle",
+                    )}</span>
+                </span>
+            </li>`,
+        )
+        .join("");
+    const slotLabel = (cell.dataset.slot || "").replace("-", " – ");
+    return `
+        <div class="slot-peek__head">
+            <span class="slot-peek__title">${escapeHtml(cell.dataset.day || "")} · ${escapeHtml(slotLabel)}</span>
+            <span class="slot-peek__count">${distinct} cours</span>
+        </div>
+        <ul class="slot-peek__list">${items}</ul>
+        ${
+            rest > 0
+                ? `<p class="slot-peek__note">+${rest} autre${rest > 1 ? "s" : ""} cours dans ce créneau</p>`
+                : ""
+        }`;
+}
+"""
+
+FUNCS2["slotPeekBounds"] = r"""
+function slotPeekBounds() {
+    // La zone utile exclut la barre d'en-tête collante et la navigation basse.
+    const margin = 8;
+    let top = margin;
+    let bottom = window.innerHeight - margin;
+    const bar = document.querySelector(".app-bar");
+    if (bar) {
+        const rect = bar.getBoundingClientRect();
+        if (rect.height > 0 && rect.bottom > top) top = rect.bottom + 6;
+    }
+    const nav = document.querySelector(".bottom-nav");
+    if (nav) {
+        const rect = nav.getBoundingClientRect();
+        if (rect.height > 0 && rect.top < bottom) bottom = rect.top - margin;
+    }
+    return {
+        top,
+        bottom: Math.max(top + 80, bottom),
+        left: margin,
+        right: window.innerWidth - margin,
+    };
+}
+"""
+
+FUNCS2["showSlotPeek"] = r"""
+function showSlotPeek(cell, anchor) {
+    if (!cell || !slotPeekUseful(cell)) return;
+    if (document.querySelector(".sheet.active")) return;
+    const state = slotPeekState();
+    const peek = ensureSlotPeek();
+    peek.innerHTML = slotPeekMarkup(cell);
+    peek.hidden = false;
+    peek.setAttribute("aria-hidden", "false");
+    state.cell = cell;
+
+    // Sous la cellule (ou sous le doigt au tactile), basculé au-dessus quand le
+    // bas de l'écran est proche, et toujours dans la zone utile.
+    const rect = cell.getBoundingClientRect();
+    const box = peek.getBoundingClientRect();
+    const bounds = slotPeekBounds();
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
+        // Au doigt : au-dessus du point touché pour ne pas le masquer.
+        left = anchor.x - box.width / 2;
+        top = anchor.y - box.height - 14;
+        if (top < bounds.top) top = anchor.y + 16;
+    } else if (top + box.height > bounds.bottom) {
+        top = rect.top - box.height - 6;
+    }
+    if (left + box.width > bounds.right) left = bounds.right - box.width;
+    if (left < bounds.left) left = bounds.left;
+    if (top + box.height > bounds.bottom) top = bounds.bottom - box.height;
+    if (top < bounds.top) top = bounds.top;
+    peek.style.left = `${Math.round(left)}px`;
+    peek.style.top = `${Math.round(top)}px`;
+}
+"""
+
+FUNCS2["hideSlotPeek"] = r"""
+function hideSlotPeek() {
+    const state = slotPeekState();
+    clearTimeout(state.timer);
+    state.timer = 0;
+    state.cell = null;
+    const peek = document.getElementById("slot-peek");
+    if (!peek) return;
+    peek.hidden = true;
+    peek.setAttribute("aria-hidden", "true");
+}
+"""
+
+FUNCS2["initSlotPeek"] = r"""
+function initSlotPeek() {
+    const state = slotPeekState();
+
+    const arm = (cell, delay, anchor) => {
+        clearTimeout(state.timer);
+        if (!cell || !slotPeekUseful(cell)) {
+            hideSlotPeek();
+            return;
+        }
+        state.timer = setTimeout(() => showSlotPeek(cell, anchor), delay);
+    };
+
+    const cellOf = (event) =>
+        event.target && event.target.closest
+            ? event.target.closest("td.slot--course")
+            : null;
+
+    // Souris : survol franc, sans clignotement quand le pointeur reste dedans.
+    document.addEventListener("pointerover", (event) => {
+        if (event.pointerType && event.pointerType !== "mouse") return;
+        const cell = cellOf(event);
+        if (!cell) return;
+        if (event.relatedTarget && cell.contains(event.relatedTarget)) return;
+        arm(cell, 140);
+    });
+
+    document.addEventListener("pointerout", (event) => {
+        const cell = cellOf(event);
+        if (!cell) return;
+        if (event.relatedTarget && cell.contains(event.relatedTarget)) return;
+        if (state.press) return;
+        clearTimeout(state.timer);
+        state.timer = 0;
+        if (state.cell === cell) hideSlotPeek();
+    });
+
+    // Clavier : le focus montre la même information.
+    document.addEventListener("focusin", (event) => {
+        const cell = cellOf(event);
+        if (cell) arm(cell, 0);
+    });
+
+    document.addEventListener("focusout", (event) => {
+        const cell = cellOf(event);
+        if (cell && state.cell === cell) hideSlotPeek();
+    });
+
+    // Tactile : appui sur le compteur « +N », ou appui long sur le créneau.
+    document.addEventListener("pointerdown", (event) => {
+        if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+        const cell = cellOf(event);
+        if (!cell) return;
+        const badge =
+            event.target.closest &&
+            event.target.closest(".slot-more, .slot-cont__count");
+        if (badge) {
+            state.suppressClick = true;
+            arm(cell, 0, { x: event.clientX, y: event.clientY });
+            window.setTimeout(() => {
+                state.suppressClick = false;
+            }, 800);
+            return;
+        }
+        clearTimeout(state.press);
+        const point = { x: event.clientX, y: event.clientY };
+        state.press = window.setTimeout(() => {
+            state.press = 0;
+            state.suppressClick = true;
+            arm(cell, 0, point);
+            window.setTimeout(() => {
+                state.suppressClick = false;
+            }, 800);
+        }, 450);
+    });
+
+    ["pointerup", "pointercancel"].forEach((type) => {
+        document.addEventListener(
+            type,
+            () => {
+                if (!state.press) return;
+                clearTimeout(state.press);
+                state.press = 0;
+            },
+            true,
+        );
+    });
+
+    // Le clic déclenché par un appui long n'ouvre pas la fiche : on l'avale.
+    document.addEventListener(
+        "click",
+        (event) => {
+            if (state.suppressClick) {
+                state.suppressClick = false;
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            if (state.cell) hideSlotPeek();
+        },
+        true,
+    );
+
+    window.addEventListener("scroll", hideSlotPeek, true);
+    window.addEventListener("resize", hideSlotPeek);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hideSlotPeek();
+    });
 }
 """
 

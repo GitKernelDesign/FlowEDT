@@ -27,6 +27,56 @@ LEGACY_DEMO = {
     "schemaVersion": 2,
 }
 
+PEEK_SEED = r"""
+() => {
+  // Jeu dédié : une cellule à deux cours (cartes empilées) et une à trois
+  // cours (carte + badge), pour vérifier le décalage et l'aperçu.
+  const t = (id, name) => ({ id, name });
+  const r = (id, name) => ({ id, name, capacity: 30 });
+  const c = (id, name) => ({ id, name, students: 28 });
+  appData.teachers = [t('t1','MARTIN'), t('t2','BERNARD'), t('t3','DUBOIS'), t('t4','THOMAS')];
+  appData.rooms = [r('r1','Salle 101'), r('r2','Salle 102'), r('r3','Salle 103')];
+  appData.classes = [c('k1','4A'), c('k2','4B'), c('k3','5A')];
+  appData.halfGroups = []; appData.classGroups = [];
+  const mk = (id, name, teacherIds, classId, roomId, duration) => ({
+    id, name, teacherIds, classId, roomId, duration,
+    frequency: 1, priority: 2, constraints: '', weekType: 'Toutes',
+    fixedDay: null, fixedStartSlot: null, scheduled: false,
+  });
+  appData.courses = [
+    mk('m1','Mathématiques',['t1'],'k1','r1',4),
+    mk('m2','Français',['t2'],'k2','r2',4),
+    mk('m3','Histoire-Géographie',['t3'],'k3','r3',2),
+    mk('m4','Anglais',['t4'],'k1','r2',2),
+    mk('m5','SVT',['t2'],'k2','r1',2),
+    mk('m6','Musique',['t4'],'k3','r2',2),
+  ];
+  appData.cantineSlots = []; appData.forbiddenSlots = [];
+  appData.scheduleA = {}; appData.scheduleB = {};
+  const two = [
+    { courseId: 'm1', roomId: 'r1', occId: 'p1' },
+    { courseId: 'm2', roomId: 'r2', occId: 'p2' },
+  ];
+  const three = [
+    { courseId: 'm3', roomId: 'r3', occId: 'p3' },
+    { courseId: 'm5', roomId: 'r1', occId: 'p5' },
+    { courseId: 'm6', roomId: 'r2', occId: 'p6' },
+  ];
+  appData.scheduleA.Lundi = {};
+  ['8:00-8:30', '8:30-9:00', '9:00-9:30', '9:30-10:00'].forEach((key, index) => {
+    appData.scheduleA.Lundi[key] = two.map((entry) => ({ ...entry, slotIndex: index }));
+  });
+  appData.scheduleA.Lundi['10:00-10:30'] = [
+    { courseId: 'm4', roomId: 'r2', slotIndex: 0, occId: 'p4' },
+  ];
+  appData.scheduleA.Mardi = {};
+  ['8:00-8:30', '8:30-9:00'].forEach((key, index) => {
+    appData.scheduleA.Mardi[key] = three.map((entry) => ({ ...entry, slotIndex: index }));
+  });
+  saveData(); updateAllUI(); updateScheduleDisplay();
+}
+"""
+
 results = []
 
 
@@ -1284,6 +1334,110 @@ def main():
             str(no_room),
         )
 
+        # ---------- 12 bis. cartes décalées, aperçu au survol et au doigt ----------
+        page.evaluate(PEEK_SEED)
+        page.wait_for_timeout(300)
+        page.evaluate("() => { switchTab('schedule'); clearScheduleFilter(); }")
+        page.wait_for_timeout(400)
+        stacked = page.evaluate(
+            """() => {
+                const cell = [...document.querySelectorAll('#schedule td.slot--course')]
+                    .find((td) => td.offsetParent !== null
+                        && td.querySelectorAll('.slot-course').length === 2
+                        && td.dataset.day === 'Lundi');
+                if (!cell) return null;
+                const cards = [...cell.querySelectorAll('.slot-course')].map((card) => ({
+                    stack: card.style.getPropertyValue('--stack'),
+                    left: Math.round(card.getBoundingClientRect().left),
+                    width: Math.round(card.getBoundingClientRect().width),
+                }));
+                const single = [...document.querySelectorAll('#schedule td.slot--course')]
+                    .find((td) => td.offsetParent !== null
+                        && td.dataset.day === 'Lundi'
+                        && td.dataset.slot === '10:00-10:30');
+                return {
+                    cards,
+                    titles: [...cell.querySelectorAll('.slot-course')].map((card) => card.title),
+                    singleTitle: single
+                        ? (single.querySelector('.slot-course') || {}).title || ''
+                        : '',
+                };
+            }"""
+        )
+        check(
+            "cartes empilées : la seconde est décalée",
+            stacked is not None
+            and [card["stack"] for card in stacked["cards"]] == ["0", "1"]
+            and 0 < stacked["cards"][1]["left"] - stacked["cards"][0]["left"] <= 6
+            and stacked["cards"][1]["width"] < stacked["cards"][0]["width"],
+            str(stacked and stacked["cards"]),
+        )
+        check(
+            "pas d'infobulle native sur un créneau à deux cours",
+            stacked is not None and stacked["titles"] == ["", ""],
+            str(stacked and stacked["titles"]),
+        )
+        check(
+            "infobulle conservée pour un cours seul",
+            stacked is not None
+            and "THOMAS" in stacked["singleTitle"]
+            and "Salle 102" in stacked["singleTitle"],
+            str(stacked and stacked["singleTitle"]),
+        )
+
+        page.click('.day-tab[data-day-index="1"]')
+        page.wait_for_timeout(350)
+        badge = page.evaluate(
+            """() => {
+                const el = [...document.querySelectorAll('#schedule td.slot--course .slot-more')]
+                    .find((node) => node.getBoundingClientRect().height > 0);
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+            }"""
+        )
+        if badge:
+            page.touchscreen.tap(badge["x"], badge["y"])
+        page.wait_for_timeout(400)
+        mobile_peek = page.evaluate(
+            """() => {
+                const peek = document.getElementById('slot-peek');
+                if (!peek) return null;
+                const box = peek.getBoundingClientRect();
+                const bar = document.querySelector('.app-bar').getBoundingClientRect();
+                const nav = document.querySelector('.bottom-nav').getBoundingClientRect();
+                return {
+                    hidden: peek.hidden,
+                    title: (peek.querySelector('.slot-peek__title') || {}).textContent,
+                    names: [...peek.querySelectorAll('.slot-peek__name')].map((n) => n.textContent.trim()),
+                    modal: document.getElementById('edit-modal').classList.contains('active'),
+                    inView: box.top >= bar.bottom && box.bottom <= nav.top,
+                };
+            }"""
+        )
+        check(
+            "aperçu tactile : tous les cours du créneau",
+            mobile_peek is not None
+            and mobile_peek["hidden"] is False
+            and mobile_peek["names"] == ["Histoire-Géographie", "SVT", "Musique"],
+            str(mobile_peek and mobile_peek["names"]),
+        )
+        check(
+            "aperçu tactile : la fiche ne s'ouvre pas",
+            mobile_peek is not None and mobile_peek["modal"] is False,
+        )
+        check(
+            "aperçu tactile : entre en-tête et navigation",
+            mobile_peek is not None and mobile_peek["inView"] is True,
+            str(mobile_peek and mobile_peek["title"]),
+        )
+        page.touchscreen.tap(4, 320)
+        page.wait_for_timeout(300)
+        check(
+            "aperçu refermé par un appui ailleurs",
+            page.evaluate("(document.getElementById('slot-peek') || { hidden: true }).hidden"),
+        )
+
         # ---------- 13. bureau : burger masqué, compacité dans la barre ----------
         desk = browser.new_context(viewport={"width": 1440, "height": 900})
         dpage = desk.new_page()
@@ -1342,6 +1496,92 @@ def main():
             and max(desk_compact) < max(desk_heights),
             f"{min(desk_compact)}–{max(desk_compact)} px sur {len(desk_compact)} cellules",
         )
+
+        dpage.evaluate(PEEK_SEED)
+        dpage.wait_for_timeout(300)
+        dpage.evaluate("() => { switchTab('schedule'); clearScheduleFilter(); }")
+        dpage.wait_for_timeout(400)
+        target = dpage.evaluate(
+            """() => {
+                const cell = [...document.querySelectorAll('#schedule td.slot--course')]
+                    .find((td) => td.offsetParent !== null
+                        && td.dataset.day === 'Lundi'
+                        && td.querySelectorAll('.slot-course').length === 2);
+                if (!cell) return null;
+                const card = cell.querySelector('.slot-course');
+                const r = card.getBoundingClientRect();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+            }"""
+        )
+        if target:
+            dpage.mouse.move(target["x"], target["y"])
+            dpage.mouse.move(target["x"] + 1, target["y"] + 1)
+        dpage.wait_for_timeout(400)
+        hover_peek = dpage.evaluate(
+            """() => {
+                const peek = document.getElementById('slot-peek');
+                if (!peek) return null;
+                const bar = document.querySelector('.app-bar').getBoundingClientRect();
+                const box = peek.getBoundingClientRect();
+                return {
+                    hidden: peek.hidden,
+                    title: (peek.querySelector('.slot-peek__title') || {}).textContent,
+                    count: (peek.querySelector('.slot-peek__count') || {}).textContent,
+                    items: [...peek.querySelectorAll('.slot-peek__item')].map((li) => ({
+                        name: li.querySelector('.slot-peek__name').textContent.trim(),
+                        meta: li.querySelector('.slot-peek__meta').textContent.trim(),
+                    })),
+                    underBar: box.top >= bar.bottom,
+                };
+            }"""
+        )
+        check(
+            "aperçu au survol : les deux cours de la cellule",
+            hover_peek is not None
+            and hover_peek["hidden"] is False
+            and hover_peek["title"] == "Lundi · 8:00 – 8:30"
+            and [item["name"] for item in hover_peek["items"]] == ["Mathématiques", "Français"],
+            str(hover_peek and hover_peek["items"]),
+        )
+        check(
+            "aperçu au survol : classe, professeur et salle",
+            hover_peek is not None
+            and hover_peek["items"][0]["meta"] == "4A · MARTIN · Salle 101",
+            str(hover_peek and hover_peek["items"][0]["meta"]),
+        )
+        check(
+            "aperçu au survol : sous la barre d'en-tête",
+            hover_peek is not None and hover_peek["underBar"] is True,
+        )
+        dpage.mouse.move(4, 4)
+        dpage.wait_for_timeout(300)
+        check(
+            "aperçu refermé en quittant la cellule",
+            dpage.evaluate("(document.getElementById('slot-peek') || { hidden: true }).hidden"),
+        )
+        if target:
+            dpage.mouse.move(target["x"], target["y"])
+            dpage.mouse.move(target["x"] + 1, target["y"] + 1)
+        dpage.wait_for_timeout(300)
+        dpage.keyboard.press("Escape")
+        dpage.wait_for_timeout(200)
+        check(
+            "aperçu refermé par Échap",
+            dpage.evaluate("(document.getElementById('slot-peek') || { hidden: true }).hidden"),
+        )
+        check(
+            "pas d'aperçu pour un créneau d'un seul cours",
+            dpage.evaluate(
+                """() => {
+                    const cell = [...document.querySelectorAll('#schedule td.slot--course')]
+                        .find((td) => td.offsetParent !== null
+                            && td.dataset.day === 'Lundi'
+                            && td.dataset.slot === '10:00-10:30');
+                    return !!cell && slotPeekUseful(cell) === false;
+                }"""
+            ),
+        )
+
         dpage.evaluate("applyDensity('confort')")
         dpage.wait_for_timeout(150)
         desk.close()

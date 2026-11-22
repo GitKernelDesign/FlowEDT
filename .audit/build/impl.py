@@ -1718,6 +1718,7 @@ function initApp() {
     initAppMenu();
     initImportDropzone();
     initDayFocus();
+    initSlotPeek();
     if (window.matchMedia("(min-width: 900px)").matches) {
         toggleCoursePanel(true);
     }
