@@ -17,3 +17,9 @@ __pycache__/
 # Divers
 .DS_Store
 *.log
+
+# Paquets de bureau (.packaging/build.py)
+.packaging/cache/
+.packaging/work/
+.packaging/preview/
+dist/

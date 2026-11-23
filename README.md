@@ -12,6 +12,7 @@ Générateur d'emplois du temps pour établissement scolaire, en **un seul fichi
 - [Fonctionnalités](#fonctionnalités)
 - [Démarrage](#démarrage)
 - [Génération automatique](#génération-automatique)
+- [Applications de bureau](#applications-de-bureau)
 - [Données et sauvegarde](#données-et-sauvegarde)
 - [Qualité](#qualité)
 - [Structure du projet](#structure-du-projet)
@@ -54,6 +55,42 @@ Aucune installation, aucun serveur, aucune connexion réseau : tout s'exécute d
 </td>
 </tr>
 </table>
+
+## Applications de bureau
+
+Trois paquets autonomes sont produits à partir du même `index.html` (Electron) : l'application se comporte exactement comme dans le navigateur, les données restent dans le profil local de l'utilisateur (aucune connexion réseau, aucune télémétrie).
+
+| Paquet | Cible | Format |
+|---|---|---|
+| `FlowEDT-<version>-x86_64.AppImage` | Linux x86-64 | image exécutable, ~111 Mo |
+| `FlowEDT-<version>-windows-x64-setup.exe` | Windows 10/11 x64 | installation par utilisateur (NSIS), ~107 Mo |
+| `FlowEDT-<version>-windows-x64-portable.zip` | Windows 10/11 x64 | archive à décompresser, ~147 Mo |
+
+**Linux** — rendre le fichier exécutable puis le lancer :
+
+```bash
+chmod +x FlowEDT-1.2.1-x86_64.AppImage
+./FlowEDT-1.2.1-x86_64.AppImage
+```
+
+L'AppImage exige `libfuse2` sur Ubuntu 22.04+ (`sudo apt install libfuse2`). Sans FUSE, l'option `--appimage-extract-and-run` fonctionne partout. Le bac à sable de Chromium est désactivé (`--no-sandbox`) : un AppImage est monté en lecture seule et ne peut pas contenir le binaire setuid exigé par le sandbox.
+
+**Windows — installation** — l'assistant installe dans `%LOCALAPPDATA%\Programs\Flow-EDT` sans demander de droits administrateur, crée les raccourcis Bureau et menu Démarrer, puis s'inscrit dans « Applications et fonctionnalités ». La désinstallation conserve les emplois du temps (`%APPDATA%\Flow-EDT`).
+
+**Windows — portable** — dézipper où vous voulez puis lancer `Flow-EDT.exe`. Le fichier `portable.txt` placé à côté de l'exécutable fait écrire les données dans `FlowEDT-data\`, ce qui permet d'utiliser une clé USB. Retirer ce fichier rétablit le stockage dans le profil utilisateur.
+
+**Signature** — les binaires ne sont pas signés (pas de certificat de signature de code) : SmartScreen peut afficher « Windows a protégé votre ordinateur », il faut alors choisir **Informations complémentaires → Exécuter quand même**.
+
+**Reconstruire les paquets** (Linux, réseau requis pour le premier téléchargement d'Electron et de NSIS) :
+
+```bash
+python3 .packaging/build.py            # les trois paquets dans dist/
+python3 .packaging/build.py linux      # AppImage seule
+python3 .packaging/build.py windows    # installateur + portable
+python3 .packaging/verify.py           # icônes, versions, contenu des archives
+```
+
+Les outils (Electron 45.4.1, NSIS 3.13, `appimagetool`) sont mis en cache dans `.packaging/cache/` ; `dist/` n'est pas versionné. L'icône de l'application est gravée dans l'exécutable Windows (16→256 px), dans le `.desktop` de l'AppImage et dans la fenêtre, et le manifeste de version affiche `Flow-EDT 1.2.1` dans l'explorateur Windows.
 
 ## Génération automatique
 
@@ -104,6 +141,18 @@ FlowEDT/
     └── shot.py             captures et audits de mise en page
 ```
 
+Les paquets de bureau (AppImage, installation et archive portable Windows) sont décrits dans [Applications de bureau](#applications-de-bureau) ; leurs sources vivent dans `.packaging/` :
+
+```text
+.packaging/
+├── app/                coquille Electron (main.js, package.json)
+├── build.py            construit les trois paquets dans dist/
+├── verify.py           contrôle icônes, versions et contenu des paquets
+├── installer.nsi       script NSIS de l'installation Windows
+├── tools/patch_exe.py  icônes et métadonnées de l'exécutable Windows
+└── icons/              icône source 512 px, .ico multi-résolutions
+```
+
 ## Développement
 
 `index.html` est **généré** : ne l'éditez pas à la main.
@@ -116,7 +165,7 @@ $EDITOR .audit/build/style.css        # ou body.html, impl*.py
 python3 .audit/build/patch.py
 
 # 3. contrôler
-python3 .audit/functional.py          # 140/140 attendu
+python3 .audit/functional.py          # 158/158 attendu
 python3 .audit/shot.py final          # captures + rapport
 ```
 

@@ -1,0 +1,10 @@
+{
+  "name": "flowedt",
+  "productName": "Flow-EDT",
+  "version": "1.2.1",
+  "description": "Générateur d'emplois du temps pour établissement scolaire",
+  "main": "main.js",
+  "license": "GPL-3.0",
+  "author": "B.Dupont",
+  "homepage": "https://github.com/GitKernelDesign/FlowEDT"
+}
