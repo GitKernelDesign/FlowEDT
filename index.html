@@ -1987,14 +1987,18 @@ input[type="search"]::-webkit-search-cancel-button {
     align-items: center;
     gap: 6px;
     align-self: flex-start;
-    padding: 4px 4px 4px 9px;
+    padding: 4px 10px;
     border-radius: var(--r-full);
     background: var(--primary-soft);
     border: 1px solid var(--primary-soft-border);
     color: var(--brand-700);
+    align-self: center;
+    font-family: inherit;
     font-size: 0.75rem;
     font-weight: 600;
+    line-height: 1.2;
     max-width: 100%;
+    cursor: pointer;
 }
 
 .filter-chip .icon {
@@ -2009,18 +2013,23 @@ input[type="search"]::-webkit-search-cancel-button {
     white-space: nowrap;
 }
 
-.filter-chip__clear {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: var(--r-full);
-    color: inherit;
-    background: rgba(0, 0, 0, 0.06);
+/* la pastille ouvre les filtres : elle n'a plus de bouton de retrait */
+.filter-chip:hover {
+    background: var(--primary-soft-border);
 }
 
-.filter-chip__clear:hover {
-    background: rgba(0, 0, 0, 0.12);
+/* Sur grand écran les deux sélecteurs sont toujours visibles : la pastille
+   n'apporterait rien, elle reste donc réservée au mobile. */
+@media (min-width: 900px) {
+    .filter-chip {
+        display: none;
+    }
+}
+
+@media (max-width: 899px) {
+    .filter-chip {
+        max-width: 46vw;
+    }
 }
 
 /* Onglets de jour (mobile) */
@@ -3746,10 +3755,6 @@ html[data-density="compact"] .slot__list > .slot-course {
     .toolbar__row--filters .field--compact {
         flex: 0 0 auto;
         width: 190px;
-    }
-
-    .filter-chip {
-        align-self: center;
     }
 
     .kpis {
@@ -5494,6 +5499,9 @@ html[data-density="compact"] .legend__dot {
                     <button class="segmented__btn" type="button" id="week-both-btn" data-week="both" aria-pressed="false" onclick="switchWeekView('both')">A + B</button>
                 </div>
                 <div class="toolbar__buttons">
+                    <button class="filter-chip" id="active-filter" type="button" onclick="toggleScheduleFilters(true)" aria-label="Changer la vue du planning" hidden>
+                        <span id="active-filter-text"></span>
+                    </button>
                     <button class="btn btn--ghost btn--sm" type="button" data-generate onclick="openGenerationSheet()">
                         <svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="btn__label">Génération auto</span>
                         <span class="btn__label btn__label--short">Auto</span>
@@ -5511,8 +5519,7 @@ html[data-density="compact"] .legend__dot {
                 <div class="field field--compact">
                     <label class="field__label" for="schedule-type-selector">Afficher</label>
                     <select class="select" id="schedule-type-selector" onchange="updateScheduleTypeSelector()">
-                        <option value="all" selected>Vue globale</option>
-                        <option value="teacher">Par professeur</option>
+                        <option value="teacher" selected>Par professeur</option>
                         <option value="class">Par classe</option>
                         <option value="room">Par salle</option>
                     </select>
@@ -5522,13 +5529,6 @@ html[data-density="compact"] .legend__dot {
                     <select class="select" id="schedule-item-selector" onchange="filterScheduleByItem()" disabled>
                         <option value="">Toutes</option>
                     </select>
-                </div>
-                <div class="filter-chip" id="active-filter" hidden>
-                    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-                    <span id="active-filter-text"></span>
-                    <button class="filter-chip__clear" type="button" onclick="clearScheduleFilter()" aria-label="Retirer le filtre">
-                        <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
-                    </button>
                 </div>
             </div>
 
@@ -8233,6 +8233,7 @@ html[data-density="compact"] .legend__dot {
             }
 
             function updateScheduleDisplay() {
+                if (repairScheduleSelection()) return;
                 const currentSchedule = getCurrentSchedule();
 
                 const tbody = document.getElementById("schedule-body");
@@ -8347,7 +8348,10 @@ html[data-density="compact"] .legend__dot {
                 };
                 const id = selection.id || legacy[type] || "";
 
-                if (!id || type === "all") return null;
+                if (type === "all") return null;
+                // Aucune ressource de ce type : la grille reste vide plutôt que de
+                // retomber sur une vue globale qui n'existe plus.
+                if (!id) return () => false;
 
                 if (type === "teacher") {
                     return (slotData, course) =>
@@ -11273,65 +11277,59 @@ html[data-density="compact"] .legend__dot {
                 const itemLabel = document.getElementById("schedule-item-label");
                 if (!typeSelect || !itemSelect || !itemLabel) return;
 
-                const type = typeSelect.value;
-                currentSelectedItem = { type, id: "" };
-                itemSelect.innerHTML = "";
-
-                if (type === "all") {
-                    itemLabel.textContent = "Ressource";
-                    itemSelect.disabled = true;
-                    itemSelect.innerHTML = '<option value="">Toutes</option>';
-                    updateFilterChip();
-                    updateScheduleDisplay();
-                    return;
+                // Le planning s'affiche toujours pour une ressource précise : professeur,
+                // classe ou salle. Il n'y a plus de vue globale.
+                const order = ["teacher", "class", "room"];
+                let type = typeSelect.value;
+                if (!order.includes(type)) type = order[0];
+                let entries = scheduleTypeEntries(type);
+                if (!entries.length) {
+                    // Rien à afficher pour cette vue : on bascule sur la première qui a
+                    // des ressources, sinon la grille reste vide.
+                    const fallback = order.find(
+                        (candidate) => scheduleTypeEntries(candidate).length > 0,
+                    );
+                    if (fallback && fallback !== type) {
+                        type = fallback;
+                        entries = scheduleTypeEntries(type);
+                    }
                 }
+                typeSelect.value = type;
 
-                const entries = [];
-                if (type === "teacher") {
-                    itemLabel.textContent = "Professeur";
-                    appData.teachers.forEach((teacher) =>
-                        entries.push({ value: teacher.id, label: teacher.name }),
-                    );
-                } else if (type === "class") {
-                    itemLabel.textContent = "Classe / Groupe";
-                    appData.classes.forEach((cls) =>
-                        entries.push({ value: cls.id, label: `${cls.name} · classe` }),
-                    );
-                    appData.halfGroups.forEach((hg) =>
-                        entries.push({
-                            value: hg.id,
-                            label: `${hg.name} · demi-groupe`,
-                        }),
-                    );
-                    appData.classGroups.forEach((cg) =>
-                        entries.push({ value: cg.id, label: `${cg.name} · groupe` }),
-                    );
-                } else if (type === "room") {
-                    itemLabel.textContent = "Salle";
-                    appData.rooms.forEach((room) =>
-                        entries.push({
-                            value: room.id,
-                            label: `${room.name} · ${room.capacity} pl.`,
-                        }),
-                    );
-                }
+                const labels = {
+                    teacher: "Professeur",
+                    class: "Classe / Groupe",
+                    room: "Salle",
+                };
+                itemLabel.textContent = labels[type] || "Ressource";
 
                 if (!entries.length) {
                     itemSelect.disabled = true;
                     itemSelect.innerHTML =
                         '<option value="">Aucune ressource disponible</option>';
+                    currentSelectedItem = { type, id: "" };
                     updateFilterChip();
                     updateScheduleDisplay();
                     return;
                 }
 
+                // On garde la ressource courante si elle existe toujours : changer de type
+                // ou recharger les données ne doit pas ramener la grille sur la première.
+                const previous =
+                    currentSelectedItem && currentSelectedItem.type === type
+                        ? currentSelectedItem.id
+                        : "";
+                const selected = entries.some((entry) => entry.value === previous)
+                    ? previous
+                    : entries[0].value;
+
                 itemSelect.disabled = false;
                 itemSelect.innerHTML = entries
                     .map((entry) => `<option value="${entry.value}">${escapeHtml(entry.label)}</option>`)
                     .join("");
+                itemSelect.value = selected;
 
-                currentSelectedItem = { type, id: entries[0].value };
-                itemSelect.value = entries[0].value;
+                currentSelectedItem = { type, id: selected };
                 updateFilterChip();
                 updateScheduleDisplay();
             }
@@ -11562,10 +11560,41 @@ html[data-density="compact"] .legend__dot {
             function openCoursePanel() {
                 toggleCoursePanel(true);
             }
+            function scheduleTypeEntries(type) {
+                const entries = [];
+                if (type === "teacher") {
+                    appData.teachers.forEach((teacher) =>
+                        entries.push({ value: teacher.id, label: teacher.name }),
+                    );
+                } else if (type === "class") {
+                    appData.classes.forEach((cls) =>
+                        entries.push({ value: cls.id, label: `${cls.name} · classe` }),
+                    );
+                    appData.halfGroups.forEach((hg) =>
+                        entries.push({
+                            value: hg.id,
+                            label: `${hg.name} · demi-groupe`,
+                        }),
+                    );
+                    appData.classGroups.forEach((cg) =>
+                        entries.push({ value: cg.id, label: `${cg.name} · groupe` }),
+                    );
+                } else if (type === "room") {
+                    appData.rooms.forEach((room) =>
+                        entries.push({
+                            value: room.id,
+                            label: `${room.name} · ${room.capacity} pl.`,
+                        }),
+                    );
+                }
+                return entries;
+            }
             function clearScheduleFilter() {
+                // Sans vue globale, retirer le filtre revient à la première ressource de
+                // la vue courante (utile aux liens « voir le planning » et aux tests).
                 const typeSelect = document.getElementById("schedule-type-selector");
                 if (!typeSelect) return;
-                typeSelect.value = "all";
+                currentSelectedItem = { type: typeSelect.value, id: "" };
                 updateScheduleTypeSelector();
             }
             function updateFilterChip() {
@@ -11573,8 +11602,8 @@ html[data-density="compact"] .legend__dot {
                 const text = document.getElementById("active-filter-text");
                 if (!chip || !text) return;
 
-                const selection = currentSelectedItem || { type: "all", id: "" };
-                if (!selection.id || selection.type === "all") {
+                const selection = currentSelectedItem || { type: "", id: "" };
+                if (!selection.id) {
                     chip.hidden = true;
                     return;
                 }
@@ -11600,7 +11629,6 @@ html[data-density="compact"] .legend__dot {
                 }
                 text.textContent = `${prefix} · ${label}`;
                 chip.hidden = false;
-                toggleScheduleFilters(true);
             }
 
             function toggleScheduleFilters(force) {
@@ -11782,15 +11810,19 @@ html[data-density="compact"] .legend__dot {
                     return;
                 }
 
-                // Filtre actif mais aucune ligne à afficher : on l'annonce clairement.
+                // Vue chargée mais aucune ligne à afficher : on l'annonce clairement.
                 if (getCurrentFilterFn() && countVisibleCourses() === 0) {
                     const name = currentSelectionName();
+                    const selection = currentSelectedItem || {};
+                    const other =
+                        selection.type === "teacher"
+                            ? "un autre professeur"
+                            : selection.type === "room"
+                              ? "une autre salle"
+                              : "une autre classe";
                     box.hidden = false;
                     box.innerHTML = `${icon("i-search")}
-                        <span class="callout__text"><strong>Aucun cours ${name ? "pour " + escapeHtml(name) : "pour cette sélection"}</strong>Changez de semaine ou retirez le filtre pour retrouver tout le planning.</span>
-                        <span class="callout__actions">
-                            <button class="btn btn--primary btn--sm" type="button" onclick="clearScheduleFilter()">Retirer le filtre</button>
-                        </span>`;
+                        <span class="callout__text"><strong>Aucun cours ${name ? "pour " + escapeHtml(name) : "pour cette sélection"}</strong>Changez de semaine ou choisissez ${other} dans le menu Afficher.</span>`;
                     return;
                 }
 
@@ -12660,6 +12692,24 @@ html[data-density="compact"] .legend__dot {
                 document.addEventListener("keydown", (event) => {
                     if (event.key === "Escape") hideSlotPeek();
                 });
+            }
+            function repairScheduleSelection() {
+                // La ressource affichée peut disparaître (suppression, import) : on repasse
+                // alors sur la première ressource de la même vue au lieu de laisser une
+                // grille vide dont plus rien ne correspond.
+                if (window.__repairingSelection) return false;
+                const selection = currentSelectedItem || {};
+                const type = selection.type;
+                if (!type || type === "all") return false;
+                const entries = scheduleTypeEntries(type);
+                if (!entries.length) return false;
+                if (selection.id && entries.some((entry) => entry.value === selection.id)) {
+                    return false;
+                }
+                window.__repairingSelection = true;
+                updateScheduleTypeSelector();
+                window.__repairingSelection = false;
+                return true;
             }
             function countVisibleCourses() {
                 let count = 0;

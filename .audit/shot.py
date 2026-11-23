@@ -117,6 +117,15 @@ def main() -> int:
 
             page.evaluate(SEED)
             page.wait_for_timeout(400)
+            # le planning n'a plus de vue globale : on cadre sur une classe
+            page.evaluate(
+                """() => {
+                    const typeSelect = document.getElementById('schedule-type-selector');
+                    typeSelect.value = 'class';
+                    updateScheduleTypeSelector();
+                }"""
+            )
+            page.wait_for_timeout(250)
             # les notifications de démonstration masquent la capture
             page.evaluate(
                 "() => { document.querySelectorAll('.toast').forEach(t => t.remove()); const c = document.getElementById('toast-container'); if (c) c.innerHTML = ''; }"

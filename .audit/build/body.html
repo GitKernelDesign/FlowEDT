@@ -670,6 +670,9 @@
                     <button class="segmented__btn" type="button" id="week-both-btn" data-week="both" aria-pressed="false" onclick="switchWeekView('both')">A + B</button>
                 </div>
                 <div class="toolbar__buttons">
+                    <button class="filter-chip" id="active-filter" type="button" onclick="toggleScheduleFilters(true)" aria-label="Changer la vue du planning" hidden>
+                        <span id="active-filter-text"></span>
+                    </button>
                     <button class="btn btn--ghost btn--sm" type="button" data-generate onclick="openGenerationSheet()">
                         <svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg><span class="btn__label">Génération auto</span>
                         <span class="btn__label btn__label--short">Auto</span>
@@ -687,8 +690,7 @@
                 <div class="field field--compact">
                     <label class="field__label" for="schedule-type-selector">Afficher</label>
                     <select class="select" id="schedule-type-selector" onchange="updateScheduleTypeSelector()">
-                        <option value="all" selected>Vue globale</option>
-                        <option value="teacher">Par professeur</option>
+                        <option value="teacher" selected>Par professeur</option>
                         <option value="class">Par classe</option>
                         <option value="room">Par salle</option>
                     </select>
@@ -698,13 +700,6 @@
                     <select class="select" id="schedule-item-selector" onchange="filterScheduleByItem()" disabled>
                         <option value="">Toutes</option>
                     </select>
-                </div>
-                <div class="filter-chip" id="active-filter" hidden>
-                    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-                    <span id="active-filter-text"></span>
-                    <button class="filter-chip__clear" type="button" onclick="clearScheduleFilter()" aria-label="Retirer le filtre">
-                        <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
-                    </button>
                 </div>
             </div>
 

@@ -37,7 +37,10 @@ PEEK_SEED = r"""
   appData.teachers = [t('t1','MARTIN'), t('t2','BERNARD'), t('t3','DUBOIS'), t('t4','THOMAS')];
   appData.rooms = [r('r1','Salle 101'), r('r2','Salle 102'), r('r3','Salle 103')];
   appData.classes = [c('k1','4A'), c('k2','4B'), c('k3','5A')];
-  appData.halfGroups = []; appData.classGroups = [];
+  appData.halfGroups = [];
+  // Un groupe réunit les trois classes : la vue « par classe » montre alors
+  // plusieurs cours dans un même créneau, ce que la grille doit décaler.
+  appData.classGroups = [{ id: 'g1', name: 'Quatrièmes et 5e', classIds: ['k1', 'k2', 'k3'] }];
   const mk = (id, name, teacherIds, classId, roomId, duration) => ({
     id, name, teacherIds, classId, roomId, duration,
     frequency: 1, priority: 2, constraints: '', weekType: 'Toutes',
@@ -76,6 +79,17 @@ PEEK_SEED = r"""
   saveData(); updateAllUI(); updateScheduleDisplay();
 }
 """
+
+
+VIEW_GROUP = """() => {
+  switchTab('schedule');
+  const typeSelect = document.getElementById('schedule-type-selector');
+  typeSelect.value = 'class';
+  updateScheduleTypeSelector();
+  const itemSelect = document.getElementById('schedule-item-selector');
+  itemSelect.value = 'g1';
+  filterScheduleByItem();
+}"""
 
 results = []
 
@@ -265,7 +279,21 @@ def main():
         check("table filtrée rendue", rows > 0, f"{rows} lignes")
         page.evaluate("clearScheduleFilter()")
         page.wait_for_timeout(300)
-        check("filtre retiré", page.evaluate("document.getElementById('active-filter').hidden"))
+        first_item = page.evaluate(
+            "[document.getElementById('schedule-item-selector').value,"
+            " document.getElementById('schedule-item-selector').options[0].value,"
+            " document.getElementById('schedule-type-selector').value]"
+        )
+        check(
+            "filtre retiré : retour à la première ressource",
+            first_item[0] == first_item[1] and first_item[2] == "teacher",
+            str(first_item),
+        )
+        check(
+            "puce de vue toujours renseignée",
+            page.is_visible("#active-filter")
+            and page.inner_text("#active-filter-text").strip() != "",
+        )
 
         # ---------- 6. semaines ----------
         page.evaluate("switchWeekView('B')")
@@ -378,6 +406,31 @@ def main():
 
         # ---------- 12. affichage compact ----------
         page.evaluate("switchTab('schedule')")
+        page.wait_for_timeout(350)
+        page.evaluate(
+            """() => {
+                // Sans vue globale, on affiche la classe d'un cours réellement
+                // placé : la mesure de hauteur a ainsi toujours des cartes.
+                const placed = new Set();
+                [appData.scheduleA, appData.scheduleB].forEach((schedule) => {
+                    Object.values(schedule || {}).forEach((day) => {
+                        Object.values(day || {}).forEach((cell) => {
+                            (Array.isArray(cell) ? cell : [cell]).forEach((item) => {
+                                if (item && item.courseId) placed.add(item.courseId);
+                            });
+                        });
+                    });
+                });
+                const course = appData.courses.find((item) => placed.has(item.id));
+                const typeSelect = document.getElementById('schedule-type-selector');
+                typeSelect.value = 'class';
+                updateScheduleTypeSelector();
+                if (course) {
+                    document.getElementById('schedule-item-selector').value = course.classId;
+                    filterScheduleByItem();
+                }
+            }"""
+        )
         page.wait_for_timeout(350)
         measure = (
             "[...document.querySelectorAll('#schedule .slot-course')]"
@@ -646,17 +699,25 @@ def main():
         )
 
         fid = pick_filter("teacher", "MOREAU")
+        callout_text = page.inner_text("#schedule-callout").replace("\n", " ")
         check(
             "filtre sans résultat : message dédié",
             page.is_visible("#schedule-callout")
-            and "Aucun cours pour MOREAU" in page.inner_text("#schedule-callout"),
-            page.inner_text("#schedule-callout").replace("\n", " ")[:80],
+            and "Aucun cours pour MOREAU" in callout_text
+            and "un autre professeur" in callout_text,
+            callout_text[:110],
         )
-        page.click("#schedule-callout button")
-        page.wait_for_timeout(400)
+        page.evaluate("toggleScheduleFilters(true)")
+        page.wait_for_timeout(150)
+        page.select_option(
+            "#schedule-item-selector",
+            page.evaluate("document.getElementById('schedule-item-selector').options[0].value"),
+        )
+        page.wait_for_timeout(350)
         check(
-            "filtre sans résultat : bouton de retrait",
-            page.evaluate("getCurrentFilterFn() === null"),
+            "filtre sans résultat : changer de professeur suffit",
+            page.evaluate("getCurrentFilterFn() !== null")
+            and not page.is_visible("#schedule-callout"),
         )
 
         # hauteur de ligne : la grille ne doit plus se déformer
@@ -1337,7 +1398,7 @@ def main():
         # ---------- 12 bis. cartes décalées, aperçu au survol et au doigt ----------
         page.evaluate(PEEK_SEED)
         page.wait_for_timeout(300)
-        page.evaluate("() => { switchTab('schedule'); clearScheduleFilter(); }")
+        page.evaluate(VIEW_GROUP)
         page.wait_for_timeout(400)
         stacked = page.evaluate(
             """() => {
@@ -1385,8 +1446,16 @@ def main():
             str(stacked and stacked["singleTitle"]),
         )
 
-        page.click('.day-tab[data-day-index="1"]')
+        page.evaluate("setDayFocus(1)")
         page.wait_for_timeout(350)
+        page.evaluate(
+            """() => {
+                const badge = [...document.querySelectorAll('#schedule td.slot--course .slot-more')]
+                    .find((node) => node.getBoundingClientRect().height > 0);
+                if (badge) badge.scrollIntoView({ block: 'center', behavior: 'instant' });
+            }"""
+        )
+        page.wait_for_timeout(250)
         badge = page.evaluate(
             """() => {
                 const el = [...document.querySelectorAll('#schedule td.slot--course .slot-more')]
@@ -1499,7 +1568,7 @@ def main():
 
         dpage.evaluate(PEEK_SEED)
         dpage.wait_for_timeout(300)
-        dpage.evaluate("() => { switchTab('schedule'); clearScheduleFilter(); }")
+        dpage.evaluate(VIEW_GROUP)
         dpage.wait_for_timeout(400)
         target = dpage.evaluate(
             """() => {
@@ -1584,6 +1653,47 @@ def main():
 
         dpage.evaluate("applyDensity('confort')")
         dpage.wait_for_timeout(150)
+
+        # ---------- 13 bis. plus de vue globale ----------
+        views = dpage.evaluate(
+            """() => ({
+                options: [...document.getElementById('schedule-type-selector').options].map((o) => o.value),
+                type: document.getElementById('schedule-type-selector').value,
+                item: document.getElementById('schedule-item-selector').value,
+                chip: getComputedStyle(document.getElementById('active-filter')).display,
+            })"""
+        )
+        check(
+            "sélecteur limité aux trois vues",
+            views["options"] == ["teacher", "class", "room"],
+            str(views["options"]),
+        )
+        check(
+            "planning ouvert sur une ressource",
+            views["type"] in ("teacher", "class", "room") and views["item"] != "",
+            f'{views["type"]} · {views["item"]}',
+        )
+        check("pastille de vue masquée en bureau", views["chip"] == "none", str(views["chip"]))
+        repaired = dpage.evaluate(
+            """() => {
+                document.getElementById('schedule-type-selector').value = 'teacher';
+                updateScheduleTypeSelector();
+                const select = document.getElementById('schedule-item-selector');
+                select.value = select.options[1].value;
+                filterScheduleByItem();
+                const removed = select.value;
+                appData.teachers = appData.teachers.filter((t) => t.id !== removed);
+                updateAllUI();
+                const after = document.getElementById('schedule-item-selector').value;
+                return { removed, after, valid: after !== removed && after !== '' };
+            }"""
+        )
+        check(
+            "ressource supprimée : la vue se répare",
+            repaired["valid"] is True,
+            f'{repaired["removed"]} → {repaired["after"]}',
+        )
+
         desk.close()
 
         check("aucune erreur JS", not errors, "; ".join(errors[:4]))

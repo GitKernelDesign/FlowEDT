@@ -1207,34 +1207,14 @@ function updateWeekViewDisplay() {
 }
 """
 
-FUNCS["updateScheduleTypeSelector"] = r"""
-function updateScheduleTypeSelector() {
-    const typeSelect = document.getElementById("schedule-type-selector");
-    const itemSelect = document.getElementById("schedule-item-selector");
-    const itemLabel = document.getElementById("schedule-item-label");
-    if (!typeSelect || !itemSelect || !itemLabel) return;
-
-    const type = typeSelect.value;
-    currentSelectedItem = { type, id: "" };
-    itemSelect.innerHTML = "";
-
-    if (type === "all") {
-        itemLabel.textContent = "Ressource";
-        itemSelect.disabled = true;
-        itemSelect.innerHTML = '<option value="">Toutes</option>';
-        updateFilterChip();
-        updateScheduleDisplay();
-        return;
-    }
-
+FUNCS["scheduleTypeEntries"] = r"""
+function scheduleTypeEntries(type) {
     const entries = [];
     if (type === "teacher") {
-        itemLabel.textContent = "Professeur";
         appData.teachers.forEach((teacher) =>
             entries.push({ value: teacher.id, label: teacher.name }),
         );
     } else if (type === "class") {
-        itemLabel.textContent = "Classe / Groupe";
         appData.classes.forEach((cls) =>
             entries.push({ value: cls.id, label: `${cls.name} · classe` }),
         );
@@ -1248,7 +1228,6 @@ function updateScheduleTypeSelector() {
             entries.push({ value: cg.id, label: `${cg.name} · groupe` }),
         );
     } else if (type === "room") {
-        itemLabel.textContent = "Salle";
         appData.rooms.forEach((room) =>
             entries.push({
                 value: room.id,
@@ -1256,23 +1235,70 @@ function updateScheduleTypeSelector() {
             }),
         );
     }
+    return entries;
+}
+"""
+
+FUNCS["updateScheduleTypeSelector"] = r"""
+function updateScheduleTypeSelector() {
+    const typeSelect = document.getElementById("schedule-type-selector");
+    const itemSelect = document.getElementById("schedule-item-selector");
+    const itemLabel = document.getElementById("schedule-item-label");
+    if (!typeSelect || !itemSelect || !itemLabel) return;
+
+    // Le planning s'affiche toujours pour une ressource précise : professeur,
+    // classe ou salle. Il n'y a plus de vue globale.
+    const order = ["teacher", "class", "room"];
+    let type = typeSelect.value;
+    if (!order.includes(type)) type = order[0];
+    let entries = scheduleTypeEntries(type);
+    if (!entries.length) {
+        // Rien à afficher pour cette vue : on bascule sur la première qui a
+        // des ressources, sinon la grille reste vide.
+        const fallback = order.find(
+            (candidate) => scheduleTypeEntries(candidate).length > 0,
+        );
+        if (fallback && fallback !== type) {
+            type = fallback;
+            entries = scheduleTypeEntries(type);
+        }
+    }
+    typeSelect.value = type;
+
+    const labels = {
+        teacher: "Professeur",
+        class: "Classe / Groupe",
+        room: "Salle",
+    };
+    itemLabel.textContent = labels[type] || "Ressource";
 
     if (!entries.length) {
         itemSelect.disabled = true;
         itemSelect.innerHTML =
             '<option value="">Aucune ressource disponible</option>';
+        currentSelectedItem = { type, id: "" };
         updateFilterChip();
         updateScheduleDisplay();
         return;
     }
 
+    // On garde la ressource courante si elle existe toujours : changer de type
+    // ou recharger les données ne doit pas ramener la grille sur la première.
+    const previous =
+        currentSelectedItem && currentSelectedItem.type === type
+            ? currentSelectedItem.id
+            : "";
+    const selected = entries.some((entry) => entry.value === previous)
+        ? previous
+        : entries[0].value;
+
     itemSelect.disabled = false;
     itemSelect.innerHTML = entries
         .map((entry) => `<option value="${entry.value}">${escapeHtml(entry.label)}</option>`)
         .join("");
+    itemSelect.value = selected;
 
-    currentSelectedItem = { type, id: entries[0].value };
-    itemSelect.value = entries[0].value;
+    currentSelectedItem = { type, id: selected };
     updateFilterChip();
     updateScheduleDisplay();
 }
@@ -1296,9 +1322,11 @@ function filterScheduleByItem() {
 NEW_FUNCS = {
     "clearScheduleFilter": r"""
 function clearScheduleFilter() {
+    // Sans vue globale, retirer le filtre revient à la première ressource de
+    // la vue courante (utile aux liens « voir le planning » et aux tests).
     const typeSelect = document.getElementById("schedule-type-selector");
     if (!typeSelect) return;
-    typeSelect.value = "all";
+    currentSelectedItem = { type: typeSelect.value, id: "" };
     updateScheduleTypeSelector();
 }
 """,
@@ -1308,8 +1336,8 @@ function updateFilterChip() {
     const text = document.getElementById("active-filter-text");
     if (!chip || !text) return;
 
-    const selection = currentSelectedItem || { type: "all", id: "" };
-    if (!selection.id || selection.type === "all") {
+    const selection = currentSelectedItem || { type: "", id: "" };
+    if (!selection.id) {
         chip.hidden = true;
         return;
     }
@@ -1335,7 +1363,6 @@ function updateFilterChip() {
     }
     text.textContent = `${prefix} · ${label}`;
     chip.hidden = false;
-    toggleScheduleFilters(true);
 }
 
 function toggleScheduleFilters(force) {
@@ -1527,15 +1554,19 @@ function updateScheduleCallout() {
         return;
     }
 
-    // Filtre actif mais aucune ligne à afficher : on l'annonce clairement.
+    // Vue chargée mais aucune ligne à afficher : on l'annonce clairement.
     if (getCurrentFilterFn() && countVisibleCourses() === 0) {
         const name = currentSelectionName();
+        const selection = currentSelectedItem || {};
+        const other =
+            selection.type === "teacher"
+                ? "un autre professeur"
+                : selection.type === "room"
+                  ? "une autre salle"
+                  : "une autre classe";
         box.hidden = false;
         box.innerHTML = `${icon("i-search")}
-            <span class="callout__text"><strong>Aucun cours ${name ? "pour " + escapeHtml(name) : "pour cette sélection"}</strong>Changez de semaine ou retirez le filtre pour retrouver tout le planning.</span>
-            <span class="callout__actions">
-                <button class="btn btn--primary btn--sm" type="button" onclick="clearScheduleFilter()">Retirer le filtre</button>
-            </span>`;
+            <span class="callout__text"><strong>Aucun cours ${name ? "pour " + escapeHtml(name) : "pour cette sélection"}</strong>Changez de semaine ou choisissez ${other} dans le menu Afficher.</span>`;
         return;
     }
 

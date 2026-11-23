@@ -482,8 +482,30 @@ function initSlotPeek() {
 }
 """
 
+FUNCS2["repairScheduleSelection"] = r"""
+function repairScheduleSelection() {
+    // La ressource affichée peut disparaître (suppression, import) : on repasse
+    // alors sur la première ressource de la même vue au lieu de laisser une
+    // grille vide dont plus rien ne correspond.
+    if (window.__repairingSelection) return false;
+    const selection = currentSelectedItem || {};
+    const type = selection.type;
+    if (!type || type === "all") return false;
+    const entries = scheduleTypeEntries(type);
+    if (!entries.length) return false;
+    if (selection.id && entries.some((entry) => entry.value === selection.id)) {
+        return false;
+    }
+    window.__repairingSelection = true;
+    updateScheduleTypeSelector();
+    window.__repairingSelection = false;
+    return true;
+}
+"""
+
 FUNCS2["updateScheduleDisplay"] = r"""
 function updateScheduleDisplay() {
+    if (repairScheduleSelection()) return;
     const currentSchedule = getCurrentSchedule();
 
     const tbody = document.getElementById("schedule-body");
@@ -539,7 +561,10 @@ function getCurrentFilterFn() {
     };
     const id = selection.id || legacy[type] || "";
 
-    if (!id || type === "all") return null;
+    if (type === "all") return null;
+    // Aucune ressource de ce type : la grille reste vide plutôt que de
+    // retomber sur une vue globale qui n'existe plus.
+    if (!id) return () => false;
 
     if (type === "teacher") {
         return (slotData, course) =>
