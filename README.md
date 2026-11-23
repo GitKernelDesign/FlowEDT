@@ -60,11 +60,13 @@ Aucune installation, aucun serveur, aucune connexion réseau : tout s'exécute d
 
 Trois paquets autonomes sont produits à partir du même `index.html` (Electron) : l'application se comporte exactement comme dans le navigateur, les données restent dans le profil local de l'utilisateur (aucune connexion réseau, aucune télémétrie).
 
-| Paquet | Cible | Format |
-|---|---|---|
-| `FlowEDT-<version>-x86_64.AppImage` | Linux x86-64 | image exécutable, ~111 Mo |
-| `FlowEDT-<version>-windows-x64-setup.exe` | Windows 10/11 x64 | installation par utilisateur (NSIS), ~107 Mo |
-| `FlowEDT-<version>-windows-x64-portable.zip` | Windows 10/11 x64 | archive à décompresser, ~147 Mo |
+| Paquet | Cible | Format | Taille |
+|---|---|---|---|
+| [`FlowEDT-1.2.1-x86_64.AppImage`](https://github.com/GitKernelDesign/FlowEDT/releases/latest/download/FlowEDT-1.2.1-x86_64.AppImage) | Linux x86-64 | image exécutable | 110,9 Mo |
+| [`FlowEDT-1.2.1-windows-x64-setup.exe`](https://github.com/GitKernelDesign/FlowEDT/releases/latest/download/FlowEDT-1.2.1-windows-x64-setup.exe) | Windows 10/11 x64 | installation par utilisateur (NSIS) | 107,2 Mo |
+| [`FlowEDT-1.2.1-windows-x64-portable.zip`](https://github.com/GitKernelDesign/FlowEDT/releases/latest/download/FlowEDT-1.2.1-windows-x64-portable.zip) | Windows 10/11 x64 | archive à décompresser | 147,2 Mo |
+
+Les trois fichiers sont joints à la [version 1.2.1](https://github.com/GitKernelDesign/FlowEDT/releases/latest) avec un `SHA256SUMS` pour vérifier l'intégrité (`sha256sum -c SHA256SUMS`).
 
 **Linux** — rendre le fichier exécutable puis le lancer :
 
