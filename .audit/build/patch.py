@@ -27,7 +27,7 @@ INDENT = " " * 12
 
 # Métadonnées du projet — seule source de vérité pour la version et la licence.
 APP_NAME = "Flow-EDT"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 APP_LICENSE = "GPL-3.0"
 APP_YEAR = "2026"
 APP_AUTHOR = "B.Dupont"

@@ -3,7 +3,7 @@
 Générateur d'emplois du temps pour établissement scolaire, en **un seul fichier HTML**, sans serveur, sans compte et sans dépendance.
 
 [![Licence](https://img.shields.io/badge/licence-GPL--3.0-40b3a2)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.0-06342d)](index.html)
+[![Version](https://img.shields.io/badge/version-1.2.1-06342d)](index.html)
 
 ![Emploi du temps — bureau](docs/planning-desktop.png)
 
